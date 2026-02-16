@@ -122,8 +122,7 @@
       </div>`;
     }
 
-    async function fetchState(){
-      const paths = ['/render', '/match.json', '/Scoreboard/Match/match.json'];
+    async function fetchJsonFromCandidates(paths){
       for (const base of API_BASES) {
         for (const path of paths) {
           const url = `${base}${path}`;
@@ -135,7 +134,18 @@
           } catch {}
         }
       }
-      throw new Error('No usable JSON state endpoint found (/render or /match.json).');
+      return null;
+    }
+
+    async function fetchState(){
+      const baseState = await fetchJsonFromCandidates(['/render', '/match.json', '/Scoreboard/Match/match.json']);
+      if (!baseState) throw new Error('No usable JSON state endpoint found (/render or /match.json).');
+
+      const statsState = await fetchJsonFromCandidates(['/statistics.json', '/Scoreboard/Match/statistics.json']);
+      if (statsState && typeof statsState === 'object') {
+        baseState.statistics = statsState;
+      }
+      return baseState;
     }
 
     async function refreshOnce(){

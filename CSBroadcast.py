@@ -3769,6 +3769,9 @@ class TournamentApp(QMainWindow):
         with open(os.path.join(match_dir, "match.json"), "w", encoding="utf-8") as f:
             json.dump({k: v for k, v in state.items() if k != "assets"}, f, ensure_ascii=False, indent=2)
 
+        with open(os.path.join(match_dir, "statistics.json"), "w", encoding="utf-8") as f:
+            json.dump(state.get("statistics", {}) or {}, f, ensure_ascii=False, indent=2)
+
         t1_players = (state.get("team1") or {}).get("players") or []
         for i in range(8):
             p = t1_players[i] if i < len(t1_players) else {}
@@ -4123,6 +4126,10 @@ class TournamentApp(QMainWindow):
         assets_path = os.path.join(base_root, "assets.json")
         with open(assets_path, "w", encoding="utf-8") as f:
             json.dump(state.get("assets", {}), f, ensure_ascii=False, indent=2)
+
+        statistics_path = os.path.join(base_root, "statistics.json")
+        with open(statistics_path, "w", encoding="utf-8") as f:
+            json.dump(state.get("statistics", {}) or {}, f, ensure_ascii=False, indent=2)
 
         self._autosave(state)
         self._last_state_for_diff = state
