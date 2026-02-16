@@ -15,7 +15,7 @@
     .page-header{position:absolute;left:var(--pad-x);top:calc(50% - 400px);display:flex;align-items:flex-start;justify-content:flex-start;z-index:2}
     .header-text{background:var(--primary);border-left:10px solid var(--team);border-radius:16px;padding:18px 26px;box-shadow:0 14px 32px rgba(0,0,0,.35);display:flex;flex-direction:column;gap:4px}
     .title{font-size:58px;font-weight:800;line-height:1.0;margin:0;letter-spacing:1px;text-transform:uppercase;color:var(--secondary)}
-    .grid-stage{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:flex-start;align-items:center;padding:0 var(--pad-x)}
+    .grid-stage{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:0 var(--pad-x)}
     .grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:var(--gap);width:100%}
     .card{background:var(--card);border-radius:var(--card-r);padding:var(--card-p);text-align:center;border-top:4px solid var(--team);box-shadow:0 8px 20px rgba(0,0,0,.28)}
     .avatar{width:var(--avatar);height:var(--avatar);border-radius:50%;object-fit:cover;background:#fff;margin:0 auto 12px;border:3px solid rgba(255,255,255,.2)}
@@ -63,10 +63,6 @@
     const titleEl = document.getElementById('title');
     const grid = document.getElementById('grid');
     const statusEl = document.getElementById('status');
-    const headerTextEl = document.querySelector('.header-text');
-    const wrapEl = document.querySelector('.wrap');
-    const HEADER_CARD_GAP = 26;
-
     const AGENTS = ['assets/agents/agent6.png','assets/agents/agent7.png','assets/agents/agent8.png','assets/agents/agent9.png','assets/agents/agent10.png'];
 
     const rateKD  = v => (v==null||isNaN(v))?null:(v>=KD_GOOD?'good':(v>=KD_OK?'okay':'bad'));
@@ -168,14 +164,6 @@
       return baseState;
     }
 
-    function syncHeaderGap(){
-      if(!headerTextEl || !wrapEl || !grid) return;
-      const headerRect = headerTextEl.getBoundingClientRect();
-      const wrapRect = wrapEl.getBoundingClientRect();
-      const top = Math.max(0, Math.round(headerRect.bottom - wrapRect.top + HEADER_CARD_GAP));
-      grid.style.marginTop = `${top}px`;
-    }
-
     async function refreshOnce(){
       try{
         const js = await fetchState();
@@ -184,7 +172,6 @@
         const statsCfg = js.statistics || {};
         const title = (statsCfg.title || 'Statistics').toString().trim() || 'Statistics';
         titleEl.textContent = title;
-        syncHeaderGap();
 
         const allPlayers = extractPlayers(js);
         const players = allPlayers.slice(TEAM_OFFSET, TEAM_OFFSET + TEAM_SIZE);
@@ -195,14 +182,11 @@
         }
         players.forEach((p, i) => grid.insertAdjacentHTML('beforeend', cardHTML(p, i)));
         statusEl.textContent = '';
-        syncHeaderGap();
       }catch(e){
         statusEl.textContent = 'Connection error: ' + e.message;
-        syncHeaderGap();
       }
     }
 
-    window.addEventListener('resize', syncHeaderGap);
     refreshOnce();
     try{
       const es = new EventSource(API_BASE + '/events');
