@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Roster Overlay — Team 1</title>
+  <title>Roster Overlay — Team 2</title>
   <style>
     :root{
       --wrap-w:1920px;
@@ -18,7 +18,7 @@
       --value:30px;
     }
 
-    :root { --bg:#0f3d3a; --card:rgba(255,255,255,.06); --muted:#aee7dd; --text:#fff; }
+    :root { --bg:#3f0f18; --card:rgba(255,255,255,.06); --muted:#ffd2dd; --text:#fff; }
     *{box-sizing:border-box}
     body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--text)}
 
@@ -55,7 +55,7 @@
   </div>
 
   <script>
-    const TEAM_OFFSET = 0;
+    const TEAM_OFFSET = 5;
     const TEAM_SIZE = 5;
 
     const API_BASE = (location.origin === 'null' || location.protocol === 'file:') ? 'http://localhost:8787' : '';
@@ -79,11 +79,11 @@
     const boxClass = r => r ? ` valbox r-${r}` : ' valbox';
 
     const AGENTS = [
-      'assets/agents/agent1.png',
-      'assets/agents/agent2.png',
-      'assets/agents/agent3.png',
-      'assets/agents/agent4.png',
-      'assets/agents/agent5.png',
+      'assets/agents/agent6.png',
+      'assets/agents/agent7.png',
+      'assets/agents/agent8.png',
+      'assets/agents/agent9.png',
+      'assets/agents/agent10.png',
     ];
 
     const toNumber = (value) => {
