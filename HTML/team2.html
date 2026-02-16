@@ -8,12 +8,14 @@
     @font-face{font-family:'Rajdhani';src:url("fonts/Rajdhani/Rajdhani-Bold.ttf") format('TrueType');font-weight:700}
     @font-face{font-family:'Rajdhani';src:url("fonts/Rajdhani/Rajdhani-Regular.ttf") format('TrueType');font-weight:400}
 
-    :root{--primary:#0f1114;--secondary:#ffffff;--team:#ff557f;--card:rgba(15,17,20,.74);--muted:#ffdbe6;--text:#ffffff;--pad-x:48px;--pad-y:28px;--gap:32px;--card-r:20px;--card-p:22px;--avatar:156px;--ico:26px;--label:20px;--value:30px;}
+    :root{--primary:#0f1114;--secondary:#ffffff;--tertiary:#5a1f31;--quaternary:#ff557f;--team:#ff557f;--card:color-mix(in srgb,var(--primary) 88%,transparent);--muted:#ffdbe6;--text:var(--secondary);--pad-x:48px;--pad-y:28px;--gap:32px;--card-r:20px;--card-p:22px;--avatar:156px;--ico:26px;--label:20px;--value:30px;}
     html,body{margin:0;padding:0;width:1920px;height:1080px;background:rgba(0,0,0,0);overflow:hidden;font-family:'Rajdhani',system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;color:var(--text)}
     *{box-sizing:border-box}
     .wrap{width:1920px; margin:0 auto; padding:var(--pad-y) var(--pad-x)}
-    .title{font-size:56px;font-weight:800;line-height:1.0;margin:0 0 6px;letter-spacing:.5px;text-transform:uppercase;color:var(--secondary)}
-    .subtitle{font-size:32px;font-weight:600;opacity:.96;margin:0 0 18px;min-height:1.2em;color:var(--muted)}
+    .page-header{display:flex;align-items:flex-start;justify-content:flex-start;width:100%;margin-bottom:18px}
+    .header-text{background:var(--primary);border-left:10px solid var(--team);border-radius:16px;padding:18px 26px;box-shadow:0 14px 32px rgba(0,0,0,.35);display:flex;flex-direction:column;gap:4px}
+    .title{font-size:58px;font-weight:800;line-height:1.0;margin:0;letter-spacing:1px;text-transform:uppercase;color:var(--secondary)}
+    .subtitle{font-size:28px;font-weight:500;opacity:.75;margin:0;min-height:1.2em;color:var(--secondary)}
     .grid{display:grid;grid-template-columns:repeat(5,1fr);gap:var(--gap)}
     .card{background:var(--card);border-radius:var(--card-r);padding:var(--card-p);text-align:center;border-top:4px solid var(--team);box-shadow:0 8px 20px rgba(0,0,0,.28)}
     .avatar{width:var(--avatar);height:var(--avatar);border-radius:50%;object-fit:cover;background:#fff;margin:0 auto 12px;border:3px solid rgba(255,255,255,.2)}
@@ -32,8 +34,12 @@
 </head>
 <body>
   <div class="wrap">
-    <h1 id="title" class="title">Statistics</h1>
-    <h2 id="subtitle" class="subtitle"></h2>
+    <div class="page-header">
+      <div class="header-text">
+        <h1 id="title" class="title">Statistics</h1>
+        <h2 id="subtitle" class="subtitle"></h2>
+      </div>
+    </div>
     <div id="grid" class="grid"></div>
     <div id="status" class="status"></div>
   </div>
@@ -74,10 +80,12 @@
       const g = payload?.general?.colors || {};
       const t = payload?.team2 || {};
       document.documentElement.style.setProperty('--primary', asHex(g.primary, '#0f1114'));
-      document.documentElement.style.setProperty('--secondary', asHex(g.quinary || g.secondary, '#ffffff'));
-      document.documentElement.style.setProperty('--muted', asHex(g.senary || '#ffdbe6', '#ffdbe6'));
-      document.documentElement.style.setProperty('--team', asHex(t.color_hex, DEFAULT_TEAM_COLOR));
-      document.documentElement.style.setProperty('--card', 'color-mix(in srgb, var(--primary) 74%, transparent)');
+      document.documentElement.style.setProperty('--secondary', asHex(g.secondary || g.quinary, '#ffffff'));
+      document.documentElement.style.setProperty('--tertiary', asHex(g.tertiary, '#5a1f31'));
+      document.documentElement.style.setProperty('--quaternary', asHex(g.quaternary, '#ff557f'));
+      document.documentElement.style.setProperty('--muted', asHex(g.senary || g.tertiary || '#ffdbe6', '#ffdbe6'));
+      document.documentElement.style.setProperty('--team', asHex(t.color_hex || g.quaternary, DEFAULT_TEAM_COLOR));
+      document.documentElement.style.setProperty('--card', 'color-mix(in srgb, var(--primary) 88%, transparent)');
     }
 
     function normalizePlayer(player){
