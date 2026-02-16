@@ -23,9 +23,9 @@
     .valbox{position:relative;min-height:1.4em;display:block}
     .valbox .valtext{display:inline-block;position:relative;left:50%;transform:translateX(-50%)}
     .valbox.r-good .valtext::after,.valbox.r-okay .valtext::after,.valbox.r-bad .valtext::after{content:"";position:absolute;top:50%;left:100%;transform:translate(8px,-50%);width:var(--ico);height:var(--ico);background-size:contain;background-repeat:no-repeat}
-    .valbox.r-good .valtext::after{display:none}
-    .valbox.r-okay .valtext::after{display:none}
-    .valbox.r-bad .valtext::after{display:none}
+    .valbox.r-good .valtext::after{background-image:url("assets/statistics/good.png")}
+    .valbox.r-okay .valtext::after{background-image:url("assets/statistics/okay.png")}
+    .valbox.r-bad .valtext::after{background-image:url("assets/statistics/bad.png")}
     .kv{display:grid;grid-template-columns:auto auto;gap:6px 36px;justify-content:center;align-items:center}
     .status{margin-top:8px;opacity:.9;font-size:22px;font-weight:700;text-transform:uppercase}
   </style>
