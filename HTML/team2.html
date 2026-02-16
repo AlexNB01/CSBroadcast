@@ -12,7 +12,7 @@
     html,body{margin:0;padding:0;width:1920px;height:1080px;background:rgba(0,0,0,0);overflow:hidden;font-family:'Rajdhani',system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;color:var(--text)}
     *{box-sizing:border-box}
     .wrap{width:1920px; margin:0 auto; padding:var(--pad-y) var(--pad-x)}
-    .title{font-size:68px;font-weight:900;line-height:1.05;margin:0 0 6px;letter-spacing:.02em;text-transform:uppercase;color:var(--secondary)}
+    .title{font-size:56px;font-weight:800;line-height:1.0;margin:0 0 6px;letter-spacing:.5px;text-transform:uppercase;color:var(--secondary)}
     .subtitle{font-size:32px;font-weight:600;opacity:.96;margin:0 0 18px;min-height:1.2em;color:var(--muted)}
     .grid{display:grid;grid-template-columns:repeat(5,1fr);gap:var(--gap)}
     .card{background:var(--card);border-radius:var(--card-r);padding:var(--card-p);text-align:center;border-top:4px solid var(--team);box-shadow:0 8px 20px rgba(0,0,0,.28)}
@@ -43,6 +43,7 @@
     const TEAM_SIZE = 5;
     const DEFAULT_TEAM_COLOR = '#ff557f';
     const API_BASE = (location.origin === 'null' || location.protocol === 'file:') ? 'http://localhost:8787' : '';
+    const API_BASES = Array.from(new Set([API_BASE, 'http://localhost:8787', '']));
 
     const qs = new URLSearchParams(location.search);
     const KD_GOOD  = Number(qs.get('kd_good'))  || 1.20;
@@ -122,14 +123,17 @@
     }
 
     async function fetchState(){
-      const candidates = ['/render', '/match.json', '/Scoreboard/Match/match.json'];
-      for (const path of candidates) {
-        try {
-          const r = await fetch(API_BASE + path, { cache:'no-store' });
-          if (!r.ok) continue;
-          const js = await r.json();
-          if (js && typeof js === 'object') return js;
-        } catch {}
+      const paths = ['/render', '/match.json', '/Scoreboard/Match/match.json'];
+      for (const base of API_BASES) {
+        for (const path of paths) {
+          const url = `${base}${path}`;
+          try {
+            const r = await fetch(url, { cache:'no-store' });
+            if (!r.ok) continue;
+            const js = await r.json();
+            if (js && typeof js === 'object') return js;
+          } catch {}
+        }
       }
       throw new Error('No usable JSON state endpoint found (/render or /match.json).');
     }
