@@ -2688,6 +2688,26 @@ class TournamentApp(QMainWindow):
         rounds = api_data.get("rounds") or []
         selected_norm = {self._normalize_map_name(m) for m in (selected_maps or []) if str(m).strip()}
 
+        def stat_value(stats: dict, *aliases: str):
+            if not isinstance(stats, dict) or not stats:
+                return None
+
+            for key in aliases:
+                if key in stats:
+                    return stats.get(key)
+
+            def _norm(text: str) -> str:
+                return "".join(ch.lower() for ch in str(text) if ch.isalnum())
+
+            alias_norms = {_norm(a) for a in aliases if str(a).strip()}
+            if not alias_norms:
+                return None
+
+            for key, value in stats.items():
+                if _norm(key) in alias_norms:
+                    return value
+            return None
+
         team_map = {}
         ordered_players = []
         by_player_id = {}
@@ -2729,20 +2749,40 @@ class TournamentApp(QMainWindow):
                     if team_id:
                         acc["team_id"] = team_id
 
-                    kills = self._parse_faceit_stat_number(pstats.get("Kills"))
-                    deaths = self._parse_faceit_stat_number(pstats.get("Deaths"))
-                    adr = self._parse_faceit_stat_number(pstats.get("ADR"))
-                    hs_pct = self._parse_faceit_stat_number(pstats.get("Headshots %"))
-                    kast_pct = self._parse_faceit_stat_number(
-                        pstats.get("KAST")
-                        or pstats.get("KAST %")
-                        or pstats.get("KAST Percentage")
+                    kills = self._parse_faceit_stat_number(stat_value(pstats, "Kills"))
+                    deaths = self._parse_faceit_stat_number(stat_value(pstats, "Deaths"))
+                    adr = self._parse_faceit_stat_number(stat_value(pstats, "ADR"))
+                    hs_pct = self._parse_faceit_stat_number(
+                        stat_value(
+                            pstats,
+                            "Headshots %",
+                            "Headshots",
+                            "Headshot %",
+                            "HS %",
+                            "HS",
+                        )
                     )
-                    kd_val = self._parse_faceit_stat_number(pstats.get("K/D Ratio"))
+                    kast_pct = self._parse_faceit_stat_number(
+                        stat_value(
+                            pstats,
+                            "KAST",
+                            "KAST %",
+                            "KAST Percentage",
+                            "KAST%",
+                            "KAST Percentage %",
+                        )
+                    )
+                    kd_val = self._parse_faceit_stat_number(
+                        stat_value(pstats, "K/D Ratio", "KD Ratio", "K/D", "KDR")
+                    )
                     rounds_played = self._parse_faceit_stat_number(
-                        pstats.get("Rounds")
-                        or pstats.get("Rounds Played")
-                        or pstats.get("Rounds played")
+                        stat_value(
+                            pstats,
+                            "Rounds",
+                            "Rounds Played",
+                            "Rounds played",
+                            "Round Played",
+                        )
                     )
 
                     if isinstance(kills, (int, float)):
