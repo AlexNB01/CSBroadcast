@@ -8,31 +8,10 @@
     @font-face{font-family:'Rajdhani';src:url("fonts/Rajdhani/Rajdhani-Bold.ttf") format('TrueType');font-weight:700}
     @font-face{font-family:'Rajdhani';src:url("fonts/Rajdhani/Rajdhani-Regular.ttf") format('TrueType');font-weight:400}
 
-    :root{
-      --primary:#0f1114;
-      --secondary:#ffffff;
-      --team:#ff557f;
-      --card:rgba(15,17,20,.74);
-      --muted:#ffdbe6;
-      --text:#ffffff;
-      --pad-x:48px;
-      --pad-y:28px;
-      --gap:32px;
-      --card-r:20px;
-      --card-p:22px;
-      --avatar:156px;
-      --ico:26px;
-      --label:20px;
-      --value:30px;
-    }
-
-    html,body{
-      margin:0;padding:0;width:1920px;height:1080px;background:rgba(0,0,0,0);overflow:hidden;
-      font-family:'Rajdhani',system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;color:var(--text);
-    }
+    :root{--primary:#0f1114;--secondary:#ffffff;--team:#ff557f;--card:rgba(15,17,20,.74);--muted:#ffdbe6;--text:#ffffff;--pad-x:48px;--pad-y:28px;--gap:32px;--card-r:20px;--card-p:22px;--avatar:156px;--ico:26px;--label:20px;--value:30px;}
+    html,body{margin:0;padding:0;width:1920px;height:1080px;background:rgba(0,0,0,0);overflow:hidden;font-family:'Rajdhani',system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;color:var(--text)}
     *{box-sizing:border-box}
-
-    .wrap{width:1920px; margin:0 auto; padding:var(--pad-y) var(--pad-x);}
+    .wrap{width:1920px; margin:0 auto; padding:var(--pad-y) var(--pad-x)}
     .title{font-size:68px;font-weight:900;line-height:1.05;margin:0 0 6px;letter-spacing:.02em;text-transform:uppercase;color:var(--secondary)}
     .subtitle{font-size:32px;font-weight:600;opacity:.96;margin:0 0 18px;min-height:1.2em;color:var(--muted)}
     .grid{display:grid;grid-template-columns:repeat(5,1fr);gap:var(--gap)}
@@ -41,17 +20,12 @@
     .nick{font-size:38px;font-weight:800;margin-bottom:6px;text-transform:uppercase}
     .label{color:var(--muted);letter-spacing:.08em;font-size:var(--label)}
     .val{font-weight:700;font-variant-numeric:tabular-nums;font-size:var(--value)}
-    .valbox{ position:relative; min-height:1.4em; display:block; }
-    .valbox .valtext{ display:inline-block; position:relative; left:50%; transform:translateX(-50%); }
-    .valbox.r-good  .valtext::after,
-    .valbox.r-okay  .valtext::after,
-    .valbox.r-bad   .valtext::after{
-      content:""; position:absolute; top:50%; left:100%; transform: translate(8px,-50%);
-      width:var(--ico); height:var(--ico); background-size:contain; background-repeat:no-repeat;
-    }
-    .valbox.r-good  .valtext::after{ background-image:url("images/good.png"); }
-    .valbox.r-okay  .valtext::after{ background-image:url("images/okay.png"); }
-    .valbox.r-bad   .valtext::after{ background-image:url("images/bad.png"); }
+    .valbox{position:relative;min-height:1.4em;display:block}
+    .valbox .valtext{display:inline-block;position:relative;left:50%;transform:translateX(-50%)}
+    .valbox.r-good .valtext::after,.valbox.r-okay .valtext::after,.valbox.r-bad .valtext::after{content:"";position:absolute;top:50%;left:100%;transform:translate(8px,-50%);width:var(--ico);height:var(--ico);background-size:contain;background-repeat:no-repeat}
+    .valbox.r-good .valtext::after{background-image:url("images/good.png")}
+    .valbox.r-okay .valtext::after{background-image:url("images/okay.png")}
+    .valbox.r-bad .valtext::after{background-image:url("images/bad.png")}
     .kv{display:grid;grid-template-columns:auto auto;gap:6px 36px;justify-content:center;align-items:center}
     .status{margin-top:8px;opacity:.9;font-size:22px;font-weight:700;text-transform:uppercase}
   </style>
@@ -68,7 +42,6 @@
     const TEAM_OFFSET = 5;
     const TEAM_SIZE = 5;
     const DEFAULT_TEAM_COLOR = '#ff557f';
-
     const API_BASE = (location.origin === 'null' || location.protocol === 'file:') ? 'http://localhost:8787' : '';
 
     const qs = new URLSearchParams(location.search);
@@ -84,42 +57,17 @@
     const grid = document.getElementById('grid');
     const statusEl = document.getElementById('status');
 
+    const AGENTS = ['assets/agents/agent6.png','assets/agents/agent7.png','assets/agents/agent8.png','assets/agents/agent9.png','assets/agents/agent10.png'];
+
     const rateKD  = v => (v==null||isNaN(v))?null:(v>=KD_GOOD?'good':(v>=KD_OK?'okay':'bad'));
     const rateADR = v => (v==null||isNaN(v))?null:(v>=ADR_GOOD?'good':(v>=ADR_OK?'okay':'bad'));
     const rateHS  = v => (v==null||isNaN(v))?null:(v>=HS_GOOD?'good':(v>=HS_OK?'okay':'bad'));
-
     const valOnly = t => `<span class="valtext">${t ?? '-'}</span>`;
     const boxClass = r => r ? ` valbox r-${r}` : ' valbox';
-
-    const AGENTS = [
-      'assets/agents/agent6.png',
-      'assets/agents/agent7.png',
-      'assets/agents/agent8.png',
-      'assets/agents/agent9.png',
-      'assets/agents/agent10.png',
-    ];
-
-    const toNumber = (value) => {
-      if (value == null || value === '') return null;
-      if (typeof value === 'number') return Number.isFinite(value) ? value : null;
-      const cleaned = String(value).replace('%','').replace(',','.').trim();
-      const n = Number(cleaned);
-      return Number.isFinite(n) ? n : null;
-    };
-
-    const pick = (obj, keys) => {
-      for (const key of keys) {
-        if (obj && obj[key] != null && obj[key] !== '') return obj[key];
-      }
-      return null;
-    };
-
-    const fromStats = (player, keys) => pick(player?.stats || {}, keys);
-
-    const asHex = (v, fallback) => {
-      const s = String(v || '').trim();
-      return /^#?[0-9a-fA-F]{6}$/.test(s) ? (s.startsWith('#') ? s : `#${s}`) : fallback;
-    };
+    const toNumber = (v) => { if(v==null||v==='') return null; const n=Number(String(v).replace('%','').replace(',','.').trim()); return Number.isFinite(n)?n:null; };
+    const pick = (o,keys) => { for(const k of keys){ if(o && o[k]!=null && o[k] !== '') return o[k]; } return null; };
+    const fromStats = (p,keys)=>pick(p?.stats||{},keys);
+    const asHex = (v,fallback)=>{ const s=String(v||'').trim(); return /^#?[0-9a-fA-F]{6}$/.test(s)?(s.startsWith('#')?s:`#${s}`):fallback; };
 
     function applyTheme(payload){
       const g = payload?.general?.colors || {};
@@ -127,25 +75,18 @@
       document.documentElement.style.setProperty('--primary', asHex(g.primary, '#0f1114'));
       document.documentElement.style.setProperty('--secondary', asHex(g.quinary || g.secondary, '#ffffff'));
       document.documentElement.style.setProperty('--muted', asHex(g.senary || '#ffdbe6', '#ffdbe6'));
-      document.documentElement.style.setProperty('--card', 'color-mix(in srgb, var(--primary) 74%, transparent)');
       document.documentElement.style.setProperty('--team', asHex(t.color_hex, DEFAULT_TEAM_COLOR));
+      document.documentElement.style.setProperty('--card', 'color-mix(in srgb, var(--primary) 74%, transparent)');
     }
 
     function normalizePlayer(player){
       const nickname = pick(player, ['nickname','nick','name','player_name','playerName']) || '-';
-      const killsRaw = pick(player, ['kills','kill','k']) ?? fromStats(player, ['kills','kill','k']);
-      const deathsRaw = pick(player, ['deaths','death','d']) ?? fromStats(player, ['deaths','death','d']);
-      const kdRaw = pick(player, ['kd','kdr','kd_ratio','k_d']) ?? fromStats(player, ['kd','kdr','kd ratio','k/d']);
-      const adrRaw = pick(player, ['adr','average_damage_per_round','damage_per_round']) ?? fromStats(player, ['adr','average_damage_per_round','damage per round']);
-      const hsRaw = pick(player, ['hs_pct','hs','headshot_pct','headshot_percentage']) ?? fromStats(player, ['hs%','headshots %','headshot %','headshot_percentage']);
-
-      const kills = toNumber(killsRaw);
-      const deaths = toNumber(deathsRaw);
-      const kd = toNumber(kdRaw);
-      const adr = toNumber(adrRaw);
-      const hsParsed = toNumber(hsRaw);
-      const hs_pct = (hsParsed != null && hsParsed <= 1) ? hsParsed * 100 : hsParsed;
-
+      const kills = toNumber(pick(player,['kills','kill','k']) ?? fromStats(player,['kills','kill','k']));
+      const deaths = toNumber(pick(player,['deaths','death','d']) ?? fromStats(player,['deaths','death','d']));
+      const kd = toNumber(pick(player,['kd','kdr','kd_ratio','k_d']) ?? fromStats(player,['kd','kdr','kd ratio','k/d']));
+      const adr = toNumber(pick(player,['adr','average_damage_per_round','damage_per_round']) ?? fromStats(player,['adr','average_damage_per_round','damage per round']));
+      const hsBase = toNumber(pick(player,['hs_pct','hs','headshot_pct','headshot_percentage']) ?? fromStats(player,['hs%','headshots %','headshot %','headshot_percentage']));
+      const hs_pct = (hsBase != null && hsBase <= 1) ? hsBase * 100 : hsBase;
       return { nickname, kills, deaths, kd, adr, hs_pct };
     }
 
@@ -157,8 +98,8 @@
         return [...t1, ...t2].map(normalizePlayer);
       }
       if (Array.isArray(payload?.teams)) {
-        const flattened = payload.teams.flatMap(team => Array.isArray(team?.players) ? team.players : []);
-        return flattened.map(normalizePlayer);
+        const flat = payload.teams.flatMap(team => Array.isArray(team?.players) ? team.players : []);
+        return flat.map(normalizePlayer);
       }
       return [];
     }
@@ -167,10 +108,8 @@
       const kd  = (p.kd  != null) ? Number(p.kd).toFixed(2) : '-';
       const adr = (p.adr != null) ? Number(p.adr).toFixed(2) : '-';
       const hs  = (p.hs_pct != null) ? Number(p.hs_pct).toFixed(0) : '-';
-      const avatarSrc = AGENTS[idx] || AGENTS[0];
-
       return `<div class="card">
-        <img class="avatar" src="${avatarSrc}" alt="">
+        <img class="avatar" src="${AGENTS[idx] || AGENTS[0]}" alt="">
         <div class="nick">${p.nickname ?? '-'}</div>
         <div class="kv">
           <div class="label">KILLS</div><div class="val${boxClass(null)}">${valOnly(p.kills ?? '-')}</div>
@@ -182,12 +121,22 @@
       </div>`;
     }
 
+    async function fetchState(){
+      const candidates = ['/render', '/match.json', '/Scoreboard/Match/match.json'];
+      for (const path of candidates) {
+        try {
+          const r = await fetch(API_BASE + path, { cache:'no-store' });
+          if (!r.ok) continue;
+          const js = await r.json();
+          if (js && typeof js === 'object') return js;
+        } catch {}
+      }
+      throw new Error('No usable JSON state endpoint found (/render or /match.json).');
+    }
+
     async function refreshOnce(){
       try{
-        const r = await fetch(API_BASE + '/render', { cache:'no-store' });
-        if(!r.ok) throw new Error(await r.text());
-        const js = await r.json();
-
+        const js = await fetchState();
         applyTheme(js);
 
         const statsCfg = js.statistics || {};
@@ -199,7 +148,6 @@
 
         const allPlayers = extractPlayers(js);
         const players = allPlayers.slice(TEAM_OFFSET, TEAM_OFFSET + TEAM_SIZE);
-
         grid.innerHTML = '';
         if(players.length === 0){
           statusEl.textContent = 'No player stats yet. Load tournament data in tool.';
@@ -215,11 +163,9 @@
     refreshOnce();
     try{
       const es = new EventSource(API_BASE + '/events');
-      es.addEventListener('update', () => { refreshOnce(); });
-      es.onmessage = () => { refreshOnce(); };
-    }catch(e){
-      statusEl.textContent = 'SSE not supported in this environment.';
-    }
+      es.addEventListener('update', refreshOnce);
+      es.onmessage = refreshOnce;
+    }catch{}
   </script>
 </body>
 </html>
