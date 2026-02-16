@@ -3,7 +3,7 @@ import server as _sb__force_include
 from dataclasses import dataclass, asdict
 from typing import Callable, Dict, List, Optional
 
-from PyQt5.QtCore import Qt, QStandardPaths, pyqtSignal
+from PyQt5.QtCore import Qt, QStandardPaths, pyqtSignal, QTimer
 from PyQt5.QtGui import QPixmap, QColor
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -2380,19 +2380,6 @@ class TournamentApp(QMainWindow):
         splitter.setSizes([700, 700])
         match_root.addWidget(splitter, 6)
 
-        tournament_faceit_box = QGroupBox("Tournament Faceit Links")
-        tournament_faceit_layout = QFormLayout(tournament_faceit_box)
-        self.faceit_group_stage = QLineEdit()
-        self.faceit_group_stage.setPlaceholderText("Group stage Faceit URL")
-        self.faceit_playoffs = QLineEdit()
-        self.faceit_playoffs.setPlaceholderText("Playoffs Faceit URL")
-        self.faceit_api_key = QLineEdit()
-        self.faceit_api_key.setPlaceholderText("FACEIT API key")
-        tournament_faceit_layout.addRow("Group stage", self.faceit_group_stage)
-        tournament_faceit_layout.addRow("Playoffs", self.faceit_playoffs)
-        tournament_faceit_layout.addRow("FACEIT API key", self.faceit_api_key)
-        match_root.addWidget(tournament_faceit_box)
-
         maps_box = QGroupBox("Maps")
         maps_layout = QVBoxLayout(maps_box)
 
@@ -2430,6 +2417,69 @@ class TournamentApp(QMainWindow):
 
         tabs.addTab(match_tab, "Match")
 
+        # --- STATISTICS TAB ---
+        self.statistics_tab = QWidget()
+        stats_root = QVBoxLayout(self.statistics_tab)
+
+        tournament_faceit_box = QGroupBox("Tournament Faceit Links")
+        tournament_faceit_layout = QFormLayout(tournament_faceit_box)
+        self.faceit_group_stage = QLineEdit()
+        self.faceit_group_stage.setPlaceholderText("Group stage Faceit URL")
+        self.faceit_playoffs = QLineEdit()
+        self.faceit_playoffs.setPlaceholderText("Playoffs Faceit URL")
+        self.faceit_api_key = QLineEdit()
+        self.faceit_api_key.setPlaceholderText("FACEIT API key")
+        tournament_faceit_layout.addRow("Group stage", self.faceit_group_stage)
+        tournament_faceit_layout.addRow("Playoffs", self.faceit_playoffs)
+        tournament_faceit_layout.addRow("FACEIT API key", self.faceit_api_key)
+        stats_root.addWidget(tournament_faceit_box)
+
+        match_stats_box = QGroupBox("Match Statistics")
+        match_stats_layout = QFormLayout(match_stats_box)
+        self.faceit_stats_title = QLineEdit("Statistics")
+        self.faceit_stats_subtitle = QLineEdit()
+        self.faceit_stats_subtitle.setPlaceholderText("Optional subtitle")
+        self.faceit_match_page = QLineEdit()
+        self.faceit_match_page.setPlaceholderText("Faceit match page URL")
+        self.faceit_stats_source = QComboBox()
+        self.faceit_stats_source.addItems(["Tournament", "Match"])
+
+        self.faceit_match_maps_label = QLabel("Match maps")
+        self.faceit_match_maps_widget = QWidget()
+        self.faceit_match_maps_layout = QHBoxLayout(self.faceit_match_maps_widget)
+        self.faceit_match_maps_layout.setContentsMargins(0, 0, 0, 0)
+        self.faceit_match_maps_layout.setSpacing(8)
+        self.faceit_match_map_checks: List[QCheckBox] = []
+
+        match_stats_layout.addRow("Title", self.faceit_stats_title)
+        match_stats_layout.addRow("Subtitle", self.faceit_stats_subtitle)
+        match_stats_layout.addRow("Match page", self.faceit_match_page)
+        match_stats_layout.addRow("Show stats from", self.faceit_stats_source)
+        match_stats_layout.addRow(self.faceit_match_maps_label, self.faceit_match_maps_widget)
+        stats_root.addWidget(match_stats_box)
+
+        stats_actions = QHBoxLayout()
+        stats_actions.addStretch(1)
+        self.stats_reset_btn = QPushButton("Reset this tab")
+        self.stats_update_btn = QPushButton("Update (Statistics)")
+        stats_actions.addWidget(self.stats_reset_btn)
+        stats_actions.addWidget(self.stats_update_btn)
+        stats_root.addLayout(stats_actions)
+        stats_root.addStretch(1)
+        tabs.addTab(self.statistics_tab, "Statistics")
+
+        self._faceit_map_search_timer = QTimer(self)
+        self._faceit_map_search_timer.setSingleShot(True)
+        self._faceit_map_search_timer.setInterval(500)
+        self._faceit_map_search_timer.timeout.connect(self._search_faceit_match_maps_silent)
+
+        self.faceit_stats_source.currentTextChanged.connect(lambda *_: self._set_statistics_match_maps_visibility())
+        self.faceit_match_page.textEdited.connect(lambda *_: self._on_match_page_edited())
+        self.faceit_match_page.editingFinished.connect(self._search_faceit_match_maps_silent)
+        self.stats_reset_btn.clicked.connect(self._reset_statistics_tab)
+        self.stats_update_btn.clicked.connect(self._update)
+        self._set_statistics_match_maps_visibility()
+
         # --- GENERAL TAB ---
         self.general_tab = GeneralTab()
         self.general_tab.updated.connect(self._update_general_only)
@@ -2460,6 +2510,347 @@ class TournamentApp(QMainWindow):
         self._last_state_for_diff = None
         self._start_replay_watcher()
         self._update()
+
+    def _clear_match_map_checks(self):
+        while self.faceit_match_maps_layout.count():
+            item = self.faceit_match_maps_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        self.faceit_match_map_checks = []
+
+    def _set_match_map_checks(self, names: List[str], checked: bool = True):
+        self._clear_match_map_checks()
+        clean = []
+        for name in names:
+            n = (name or "").strip()
+            if n and n not in clean:
+                clean.append(n)
+
+        for n in clean:
+            cb = QCheckBox(n)
+            cb.setChecked(checked)
+            self.faceit_match_map_checks.append(cb)
+            self.faceit_match_maps_layout.addWidget(cb)
+        self.faceit_match_maps_layout.addStretch(1)
+        self._set_statistics_match_maps_visibility()
+
+    def _set_statistics_match_maps_visibility(self):
+        source_match = (self.faceit_stats_source.currentText() or "").strip().lower() == "match"
+        show = source_match and len(self.faceit_match_map_checks) > 0
+        self.faceit_match_maps_label.setVisible(show)
+        self.faceit_match_maps_widget.setVisible(show)
+
+    def _reset_statistics_tab(self):
+        self.faceit_group_stage.clear()
+        self.faceit_playoffs.clear()
+        self.faceit_api_key.clear()
+        self.faceit_stats_title.setText("Statistics")
+        self.faceit_stats_subtitle.clear()
+        self.faceit_match_page.clear()
+        self.faceit_stats_source.setCurrentText("Tournament")
+        self._clear_match_map_checks()
+        self._set_statistics_match_maps_visibility()
+
+    def _on_match_page_edited(self):
+        self._faceit_map_search_timer.start()
+
+    def _extract_faceit_match_ids(self, match_url: str) -> List[str]:
+        url = (match_url or "").strip()
+        candidates: List[str] = []
+
+        room_match = re.search(r"/room/([^/?#]+)", url, flags=re.IGNORECASE)
+        if room_match:
+            candidates.append(room_match.group(1).strip())
+
+        raw_matches = re.findall(r"(?:\b\d-)?[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", url)
+        candidates.extend([m.strip() for m in raw_matches if m.strip()])
+
+        out: List[str] = []
+        seen = set()
+        for cid in candidates:
+            for variant in [cid, cid.split("-", 1)[1] if "-" in cid and cid[0].isdigit() else cid]:
+                v = (variant or "").strip()
+                if v and v not in seen:
+                    seen.add(v)
+                    out.append(v)
+        return out
+
+    def _normalize_map_name(self, value: str) -> str:
+        text = (value or "").strip()
+        if not text:
+            return ""
+        text = re.sub(r"^[Dd][Ee]_", "", text)
+        text = text.replace("_", " ").strip()
+        return text.title()
+
+    def _search_faceit_match_maps_silent(self):
+        self._search_faceit_match_maps(show_errors=False)
+
+    def _search_faceit_match_maps(self, show_errors: bool = True):
+        url = (self.faceit_match_page.text() or "").strip()
+        if not url:
+            self._clear_match_map_checks()
+            self._set_statistics_match_maps_visibility()
+            return
+
+        match_ids = self._extract_faceit_match_ids(url)
+        api_key = (self.faceit_api_key.text() or "").strip()
+        names: List[str] = []
+        api_error = ""
+
+        if match_ids and api_key:
+            import urllib.request, urllib.error, json
+            for match_id in match_ids:
+                try:
+                    req = urllib.request.Request(
+                        f"https://open.faceit.com/data/v4/matches/{match_id}",
+                        headers={"Authorization": f"Bearer {api_key}"},
+                    )
+                    with urllib.request.urlopen(req, timeout=6.0) as resp:
+                        data = json.loads(resp.read().decode("utf-8", errors="ignore"))
+
+                    rounds = data.get("rounds") or []
+                    names = [self._normalize_map_name(str((r.get("round_stats") or {}).get("Map") or "")) for r in rounds]
+                    names = [n for n in names if n]
+
+                    if not names:
+                        voting_map = ((data.get("voting") or {}).get("map") or {})
+                        picks = voting_map.get("pick") or []
+                        names = [self._normalize_map_name(str(x)) for x in picks]
+                        names = [n for n in names if n]
+
+                    if names:
+                        break
+                except urllib.error.HTTPError as e:
+                    api_error = f"HTTP {e.code}"
+                except Exception as e:
+                    api_error = str(e)
+
+        if not names:
+            try:
+                import urllib.request
+                req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+                with urllib.request.urlopen(req, timeout=6.0) as resp:
+                    html = resp.read().decode("utf-8", errors="ignore")
+
+                candidates = []
+                patterns = [
+                    r'"Map"\s*:\s*"([^"]+)"',
+                    r'"map"\s*:\s*"([^"]+)"',
+                    r'"map_name"\s*:\s*"([^"]+)"',
+                    r'"game_map"\s*:\s*"([^"]+)"',
+                ]
+                for pat in patterns:
+                    candidates.extend(re.findall(pat, html))
+
+                cleaned = []
+                for c in candidates:
+                    name = self._normalize_map_name(str(c))
+                    if name and name not in cleaned:
+                        cleaned.append(name)
+                names = cleaned
+            except Exception:
+                names = []
+
+        if not names:
+            self._clear_match_map_checks()
+            self._set_statistics_match_maps_visibility()
+            if show_errors:
+                hint = ""
+                if not api_key:
+                    hint = " Add FACEIT API key for reliable lookup."
+                elif api_error:
+                    hint = f" API error: {api_error}."
+                QMessageBox.warning(self, "Statistics", "Could not find map names from the Faceit match page/API." + hint)
+            return
+
+        self._set_match_map_checks(names, checked=True)
+        self.faceit_stats_source.setCurrentText("Match")
+        self._set_statistics_match_maps_visibility()
+
+    def _parse_faceit_stat_number(self, value):
+        if value is None:
+            return None
+        text = str(value).strip()
+        if not text:
+            return None
+        text = text.replace("%", "").replace(",", ".")
+        try:
+            n = float(text)
+            if n.is_integer():
+                return int(n)
+            return n
+        except Exception:
+            return None
+
+    def _extract_faceit_match_statistics(self, api_data: dict, selected_maps: List[str]) -> dict:
+        rounds = api_data.get("rounds") or []
+        selected_norm = {self._normalize_map_name(m) for m in (selected_maps or []) if str(m).strip()}
+
+        team_map = {}
+        ordered_players = []
+        by_player_id = {}
+
+        for rnd in rounds:
+            map_name = self._normalize_map_name(str((rnd.get("round_stats") or {}).get("Map") or ""))
+            if selected_norm and map_name and map_name not in selected_norm:
+                continue
+
+            for team in (rnd.get("teams") or []):
+                team_id = (team.get("team_id") or "").strip()
+                team_name = (team.get("team_stats") or {}).get("Team") or team_id or ""
+                if team_id:
+                    team_map[team_id] = str(team_name)
+
+                for p in (team.get("players") or []):
+                    player_id = (p.get("player_id") or p.get("nickname") or "").strip()
+                    if not player_id:
+                        continue
+                    if player_id not in by_player_id:
+                        by_player_id[player_id] = {
+                            "nickname": (p.get("nickname") or "").strip() or "-",
+                            "team_id": team_id,
+                            "kills": 0,
+                            "deaths": 0,
+                            "adr_sum": 0.0,
+                            "adr_count": 0,
+                            "hs_num": 0.0,
+                            "hs_den": 0.0,
+                            "kast_num": 0.0,
+                            "kast_den": 0.0,
+                            "kd_values": [],
+                        }
+                        ordered_players.append(player_id)
+
+                    acc = by_player_id[player_id]
+                    pstats = p.get("player_stats") or {}
+                    acc["nickname"] = (p.get("nickname") or acc["nickname"] or "-").strip() or "-"
+                    if team_id:
+                        acc["team_id"] = team_id
+
+                    kills = self._parse_faceit_stat_number(pstats.get("Kills"))
+                    deaths = self._parse_faceit_stat_number(pstats.get("Deaths"))
+                    adr = self._parse_faceit_stat_number(pstats.get("ADR"))
+                    hs_pct = self._parse_faceit_stat_number(pstats.get("Headshots %"))
+                    kast_pct = self._parse_faceit_stat_number(
+                        pstats.get("KAST")
+                        or pstats.get("KAST %")
+                        or pstats.get("KAST Percentage")
+                    )
+                    kd_val = self._parse_faceit_stat_number(pstats.get("K/D Ratio"))
+                    rounds_played = self._parse_faceit_stat_number(
+                        pstats.get("Rounds")
+                        or pstats.get("Rounds Played")
+                        or pstats.get("Rounds played")
+                    )
+
+                    if isinstance(kills, (int, float)):
+                        acc["kills"] += int(round(float(kills)))
+                    if isinstance(deaths, (int, float)):
+                        acc["deaths"] += int(round(float(deaths)))
+                    if isinstance(adr, (int, float)):
+                        acc["adr_sum"] += float(adr)
+                        acc["adr_count"] += 1
+                    if isinstance(hs_pct, (int, float)):
+                        if hs_pct <= 1:
+                            hs_pct *= 100.0
+                        # weighted by kills if present, else equal-weight
+                        weight = max(1.0, float(kills or 0.0))
+                        acc["hs_num"] += float(hs_pct) * weight
+                        acc["hs_den"] += weight
+                    if isinstance(kast_pct, (int, float)):
+                        if kast_pct <= 1:
+                            kast_pct *= 100.0
+                        # weighted by rounds when available, otherwise equal-weight
+                        kast_weight = max(1.0, float(rounds_played or 0.0))
+                        acc["kast_num"] += float(kast_pct) * kast_weight
+                        acc["kast_den"] += kast_weight
+                    if isinstance(kd_val, (int, float)):
+                        acc["kd_values"].append(float(kd_val))
+
+        players = []
+        team1_players = []
+        team2_players = []
+        team_ids_seen = []
+
+        for pid in ordered_players:
+            acc = by_player_id[pid]
+            deaths = acc["deaths"]
+            kd = (acc["kills"] / deaths) if deaths > 0 else None
+            if kd is None and acc["kd_values"]:
+                kd = sum(acc["kd_values"]) / max(1, len(acc["kd_values"]))
+            adr = (acc["adr_sum"] / acc["adr_count"]) if acc["adr_count"] > 0 else None
+            hs_pct = (acc["hs_num"] / acc["hs_den"]) if acc["hs_den"] > 0 else None
+            kast_pct = (acc["kast_num"] / acc["kast_den"]) if acc["kast_den"] > 0 else None
+
+            row = {
+                "nickname": acc["nickname"] or "-",
+                "kills": acc["kills"],
+                "deaths": acc["deaths"],
+                "kd": round(float(kd), 2) if isinstance(kd, (int, float)) else None,
+                "adr": round(float(adr), 2) if isinstance(adr, (int, float)) else None,
+                "hs_pct": round(float(hs_pct), 1) if isinstance(hs_pct, (int, float)) else None,
+                "kast_pct": round(float(kast_pct), 1) if isinstance(kast_pct, (int, float)) else None,
+                "team_id": acc.get("team_id") or "",
+            }
+            players.append(row)
+
+            tid = (acc.get("team_id") or "").strip()
+            if tid and tid not in team_ids_seen:
+                team_ids_seen.append(tid)
+
+        t1_id = team_ids_seen[0] if len(team_ids_seen) >= 1 else ""
+        t2_id = team_ids_seen[1] if len(team_ids_seen) >= 2 else ""
+        for p in players:
+            tid = (p.get("team_id") or "").strip()
+            clean = dict(p)
+            clean.pop("team_id", None)
+            if tid and tid == t1_id:
+                team1_players.append(clean)
+            elif tid and tid == t2_id:
+                team2_players.append(clean)
+
+        maps = []
+        for r in rounds:
+            name = self._normalize_map_name(str((r.get("round_stats") or {}).get("Map") or ""))
+            if name and name not in maps:
+                maps.append(name)
+
+        result = {
+            "players": [{k: v for k, v in p.items() if k != "team_id"} for p in players],
+            "maps": maps,
+        }
+        if team1_players or team2_players:
+            result["team1"] = {"name": team_map.get(t1_id, ""), "players": team1_players}
+            result["team2"] = {"name": team_map.get(t2_id, ""), "players": team2_players}
+        return result
+
+    def _fetch_faceit_match_statistics_payload(self, match_page: str, api_key: str, selected_maps: List[str]) -> Optional[dict]:
+        match_ids = self._extract_faceit_match_ids(match_page)
+        if not match_ids or not api_key:
+            return None
+        import urllib.request
+        import urllib.error
+        import json
+        for match_id in match_ids:
+            try:
+                req = urllib.request.Request(
+                    f"https://open.faceit.com/data/v4/matches/{match_id}/stats",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                )
+                with urllib.request.urlopen(req, timeout=8.0) as resp:
+                    data = json.loads(resp.read().decode("utf-8", errors="ignore"))
+                if isinstance(data, dict):
+                    parsed = self._extract_faceit_match_statistics(data, selected_maps)
+                    if parsed.get("players"):
+                        parsed["match_id"] = match_id
+                        return parsed
+            except urllib.error.HTTPError:
+                continue
+            except Exception:
+                continue
+        return None
 
     # ---------------------
     # Menubar and handlers
@@ -3173,7 +3564,7 @@ class TournamentApp(QMainWindow):
                 "general.colors",
                 "t1.name","t1.score","t1.color","t1.logo","t1.abbr","t1.players",
                 "t2.name","t2.score","t2.color","t2.logo","t2.abbr","t2.players",
-                "faceit.links",
+                "faceit.links", "faceit.stats",
                 "general.caster1","general.caster2","general.host",
                 "waiting.texts","waiting.timer","waiting.videos","waiting.socials",
                 "maps", "standings", "bracket"
@@ -3248,6 +3639,14 @@ class TournamentApp(QMainWindow):
            (ofl.get("playoffs") or "").strip() != (nfl.get("playoffs") or "").strip() or \
            (ofl.get("api_key") or "").strip() != (nfl.get("api_key") or "").strip():
             keys.append("faceit.links")
+
+        osf, nsf = old.get("statistics", {}) or {}, new.get("statistics", {}) or {}
+        if (osf.get("title") or "Statistics").strip() != (nsf.get("title") or "Statistics").strip() or \
+           (osf.get("subtitle") or "").strip() != (nsf.get("subtitle") or "").strip() or \
+           (osf.get("match_page") or "").strip() != (nsf.get("match_page") or "").strip() or \
+           (osf.get("source") or "tournament").strip() != (nsf.get("source") or "tournament").strip() or \
+           [str(x) for x in (osf.get("match_maps") or [])] != [str(x) for x in (nsf.get("match_maps") or [])]:
+            keys.append("faceit.stats")
         if _players_changed(o1, n1): keys.append("t1.players")
         if _players_changed(o2, n2): keys.append("t2.players")
 
@@ -3513,9 +3912,16 @@ class TournamentApp(QMainWindow):
         write_team_flat("T1", t1)
         write_team_flat("T2", t2)
         t_faceit = state.get("tournament_faceit", {}) or {}
+        stats_cfg = state.get("statistics", {}) or {}
         self._write_txt(os.path.join(match_dir, "FaceitGroupStage.txt"), (t_faceit.get("group_stage") or "").strip())
         self._write_txt(os.path.join(match_dir, "FaceitPlayoffs.txt"), (t_faceit.get("playoffs") or "").strip())
         self._write_txt(os.path.join(match_dir, "FaceitApiKey.txt"), (t_faceit.get("api_key") or "").strip())
+        self._write_txt(os.path.join(match_dir, "FaceitMatchPage.txt"), (stats_cfg.get("match_page") or "").strip())
+        self._write_txt(os.path.join(match_dir, "FaceitStatsSource.txt"), (stats_cfg.get("source") or "tournament").strip())
+        self._write_txt(os.path.join(match_dir, "FaceitStatsTitle.txt"), (stats_cfg.get("title") or "Statistics").strip() or "Statistics")
+        self._write_txt(os.path.join(match_dir, "FaceitStatsSubtitle.txt"), (stats_cfg.get("subtitle") or "").strip())
+        maps_txt = ",".join(str(m).strip() for m in (stats_cfg.get("match_maps") or []) if str(m).strip())
+        self._write_txt(os.path.join(match_dir, "FaceitMatchMaps.txt"), maps_txt)
 
         cur = state.get("current_map")
         self._write_txt(os.path.join(match_dir, "CurrentMap.txt"), "" if cur is None else str(cur))
@@ -3546,6 +3952,17 @@ class TournamentApp(QMainWindow):
         with open(os.path.join(match_dir, "match.json"), "w", encoding="utf-8") as f:
             json.dump({k: v for k, v in state.items() if k != "assets"}, f, ensure_ascii=False, indent=2)
 
+        match_stats_path = os.path.join(match_dir, "statistics.json")
+        existing_match_stats = {}
+        try:
+            if os.path.isfile(match_stats_path):
+                with open(match_stats_path, "r", encoding="utf-8") as f:
+                    existing_match_stats = json.load(f)
+        except Exception:
+            existing_match_stats = {}
+        with open(match_stats_path, "w", encoding="utf-8") as f:
+            json.dump(self._compose_statistics_payload(state, existing_match_stats), f, ensure_ascii=False, indent=2)
+
         t1_players = (state.get("team1") or {}).get("players") or []
         for i in range(8):
             p = t1_players[i] if i < len(t1_players) else {}
@@ -3565,9 +3982,7 @@ class TournamentApp(QMainWindow):
     def _reset_all(self):
         self.team1_panel.reset()
         self.team2_panel.reset()
-        self.faceit_group_stage.clear()
-        self.faceit_playoffs.clear()
-        self.faceit_api_key.clear()
+        self._reset_statistics_tab()
         self.team1_panel.color_hex = "#55aaff"; self.team1_panel._apply_color_style()
         self.team2_panel.color_hex = "#ff557f"; self.team2_panel._apply_color_style()
         for i, rb in enumerate(self.current_map_buttons, start=1):
@@ -3652,6 +4067,10 @@ class TournamentApp(QMainWindow):
                            else "")
             })
 
+        selected_maps = [(cb.text() or "").strip() for cb in self.faceit_match_map_checks if cb.isChecked() and (cb.text() or "").strip()]
+        source_text = (self.faceit_stats_source.currentText() or "Tournament").strip().lower()
+        source_key = "match" if source_text == "match" else "tournament"
+
         state = {
             "team1": asdict(t1),
             "team2": asdict(t2),
@@ -3661,6 +4080,13 @@ class TournamentApp(QMainWindow):
                 "group_stage": self.faceit_group_stage.text().strip(),
                 "playoffs": self.faceit_playoffs.text().strip(),
                 "api_key": self.faceit_api_key.text().strip(),
+            },
+            "statistics": {
+                "title": (self.faceit_stats_title.text() or "").strip() or "Statistics",
+                "subtitle": (self.faceit_stats_subtitle.text() or "").strip(),
+                "match_page": self.faceit_match_page.text().strip(),
+                "source": source_key,
+                "match_maps": selected_maps,
             },
             "assets": {
                 "maps": {k: asdict(v) for k, v in self.maps.items()},
@@ -3696,6 +4122,29 @@ class TournamentApp(QMainWindow):
         self.faceit_group_stage.setText((t_faceit.get("group_stage") or "").strip())
         self.faceit_playoffs.setText((t_faceit.get("playoffs") or "").strip())
         self.faceit_api_key.setText((t_faceit.get("api_key") or "").strip())
+
+        stats_cfg = state.get("statistics", {}) or {}
+        self.faceit_stats_title.setText((stats_cfg.get("title") or "Statistics").strip() or "Statistics")
+        self.faceit_stats_subtitle.setText((stats_cfg.get("subtitle") or "").strip())
+        self.faceit_match_page.setText((stats_cfg.get("match_page") or "").strip())
+        source = (stats_cfg.get("source") or "tournament").strip().lower()
+
+        selected_maps_raw = [str(m).strip() for m in (stats_cfg.get("match_maps") or []) if str(m).strip()]
+        selected_map_names = [m for m in selected_maps_raw if not m.isdigit()]
+        selected_map_indexes = {int(m) for m in selected_maps_raw if m.isdigit()}
+
+        if selected_map_names:
+            self._set_match_map_checks(selected_map_names, checked=False)
+            for cb in self.faceit_match_map_checks:
+                cb.setChecked((cb.text() or "").strip() in selected_map_names)
+        elif selected_map_indexes:
+            indexed_names = [f"Map {i}" for i in sorted(selected_map_indexes)]
+            self._set_match_map_checks(indexed_names, checked=True)
+        else:
+            self._clear_match_map_checks()
+
+        self.faceit_stats_source.setCurrentText("Match" if source == "match" else "Tournament")
+        self._set_statistics_match_maps_visibility()
 
         for mr in self.map_rows:
             mr.reset()
@@ -3800,6 +4249,32 @@ class TournamentApp(QMainWindow):
             self.bracket_tab.from_settings(b_settings)
 
 
+    def _compose_statistics_payload(self, state: dict, existing: Optional[dict] = None) -> dict:
+        existing = existing if isinstance(existing, dict) else {}
+        stats_ui = (state.get("statistics") or {}) if isinstance(state, dict) else {}
+        merged = dict(existing)
+        merged.update({
+            "title": (stats_ui.get("title") or "Statistics"),
+            "subtitle": (stats_ui.get("subtitle") or ""),
+            "match_page": (stats_ui.get("match_page") or ""),
+            "source": (stats_ui.get("source") or "tournament"),
+            "match_maps": list(stats_ui.get("match_maps") or []),
+        })
+
+        source = (merged.get("source") or "").strip().lower()
+        if source == "match":
+            t_faceit = (state.get("tournament_faceit") or {}) if isinstance(state, dict) else {}
+            api_key = (t_faceit.get("api_key") or "").strip()
+            match_page = (merged.get("match_page") or "").strip()
+            selected_maps = [str(m).strip() for m in (merged.get("match_maps") or []) if str(m).strip()]
+            fetched = self._fetch_faceit_match_statistics_payload(match_page, api_key, selected_maps)
+            if fetched:
+                for key in ("players", "team1", "team2", "maps", "match_id"):
+                    if key in fetched:
+                        merged[key] = fetched[key]
+
+        return merged
+
     def _update(self):
         state = self._collect_state()
 
@@ -3869,6 +4344,17 @@ class TournamentApp(QMainWindow):
         with open(assets_path, "w", encoding="utf-8") as f:
             json.dump(state.get("assets", {}), f, ensure_ascii=False, indent=2)
 
+        statistics_path = os.path.join(base_root, "statistics.json")
+        existing_stats = {}
+        try:
+            if os.path.isfile(statistics_path):
+                with open(statistics_path, "r", encoding="utf-8") as f:
+                    existing_stats = json.load(f)
+        except Exception:
+            existing_stats = {}
+        with open(statistics_path, "w", encoding="utf-8") as f:
+            json.dump(self._compose_statistics_payload(state, existing_stats), f, ensure_ascii=False, indent=2)
+
         self._autosave(state)
         self._last_state_for_diff = state
         
@@ -3883,6 +4369,13 @@ class TournamentApp(QMainWindow):
                 "group_stage": (self.faceit_group_stage.text() or "").strip(),
                 "playoffs": (self.faceit_playoffs.text() or "").strip(),
                 "api_key": (self.faceit_api_key.text() or "").strip(),
+            },
+            "statistics": {
+                "title": (self.faceit_stats_title.text() or "").strip() or "Statistics",
+                "subtitle": (self.faceit_stats_subtitle.text() or "").strip(),
+                "match_page": (self.faceit_match_page.text() or "").strip(),
+                "source": "match" if (self.faceit_stats_source.currentText() or "").strip().lower() == "match" else "tournament",
+                "match_maps": [(cb.text() or "").strip() for cb in self.faceit_match_map_checks if cb.isChecked() and (cb.text() or "").strip()],
             },
             "general": g,
             "assets": {"maps":{}},
@@ -3905,6 +4398,13 @@ class TournamentApp(QMainWindow):
                 "group_stage": (self.faceit_group_stage.text() or "").strip(),
                 "playoffs": (self.faceit_playoffs.text() or "").strip(),
                 "api_key": (self.faceit_api_key.text() or "").strip(),
+            },
+            "statistics": {
+                "title": (self.faceit_stats_title.text() or "").strip() or "Statistics",
+                "subtitle": (self.faceit_stats_subtitle.text() or "").strip(),
+                "match_page": (self.faceit_match_page.text() or "").strip(),
+                "source": "match" if (self.faceit_stats_source.currentText() or "").strip().lower() == "match" else "tournament",
+                "match_maps": [(cb.text() or "").strip() for cb in self.faceit_match_map_checks if cb.isChecked() and (cb.text() or "").strip()],
             },
             "general": g,
             "waiting": w,
