@@ -733,7 +733,8 @@ class MapRow(QWidget):
         self.draft_action = QComboBox()
         self.draft_action.addItems(["—", "Ban", "Pick", "Decider"])
         self.draft_by = QComboBox()
-        self.draft_by.addItems(["—", "T1", "T2"])
+        self.draft_by.addItem("—", "")
+        self.set_team_names("Team 1", "Team 2")
 
         self.t1score = QSpinBox(); self.t1score.setRange(0, 200)
         self.t2score = QSpinBox(); self.t2score.setRange(0, 200)
@@ -777,10 +778,47 @@ class MapRow(QWidget):
     def allows_scores(self) -> bool:
         return self.draft_action.currentText() in self.DRAFT_ACTIONS_WITH_SCORE
 
+    def set_team_names(self, team1_name: str, team2_name: str):
+        current_key = self.selected_draft_by_key()
+        t1 = (team1_name or "").strip() or "Team 1"
+        t2 = (team2_name or "").strip() or "Team 2"
+        self.draft_by.blockSignals(True)
+        self.draft_by.clear()
+        self.draft_by.addItem("—", "")
+        self.draft_by.addItem(t1, "t1")
+        self.draft_by.addItem(t2, "t2")
+        self.draft_by.blockSignals(False)
+        self.set_selected_draft_by(current_key)
+
+    def selected_draft_by_key(self) -> str:
+        key = self.draft_by.currentData()
+        if key in {"t1", "t2"}:
+            return key
+        text = (self.draft_by.currentText() or "").strip().lower()
+        if text in {"t1", "team 1"}:
+            return "t1"
+        if text in {"t2", "team 2"}:
+            return "t2"
+        return ""
+
+    def set_selected_draft_by(self, key: str):
+        norm = (key or "").strip().lower()
+        if norm == "team 1":
+            norm = "t1"
+        elif norm == "team 2":
+            norm = "t2"
+        if norm == "t1":
+            ix = self.draft_by.findData("t1")
+        elif norm == "t2":
+            ix = self.draft_by.findData("t2")
+        else:
+            ix = self.draft_by.findData("")
+        self.draft_by.setCurrentIndex(ix if ix >= 0 else 0)
+
     def reset(self):
         self.map_combo.setCurrentIndex(0)
         self.draft_action.setCurrentIndex(0)
-        self.draft_by.setCurrentIndex(0)
+        self.set_selected_draft_by("")
         self.t1score.setValue(0)
         self.t2score.setValue(0)
         self.completed.setChecked(False)
@@ -2327,6 +2365,8 @@ class TournamentApp(QMainWindow):
         splitter = QSplitter()
         self.team1_panel = TeamPanel("Team 1", default_color="#55aaff")
         self.team2_panel = TeamPanel("Team 2", default_color="#ff557f")
+        self.team1_panel.team_name.textChanged.connect(self._refresh_map_row_team_labels)
+        self.team2_panel.team_name.textChanged.connect(self._refresh_map_row_team_labels)
         splitter.addWidget(self.team1_panel)
         splitter.addWidget(self.team2_panel)
         splitter.setSizes([700, 700])
@@ -2340,6 +2380,7 @@ class TournamentApp(QMainWindow):
             mr = MapRow(i, self._map_names)
             self.map_rows.append(mr)
             maps_layout.addWidget(mr)
+        self._refresh_map_row_team_labels()
 
         current_row = QHBoxLayout()
         current_row.addWidget(QLabel("Current:"))
@@ -2836,6 +2877,12 @@ class TournamentApp(QMainWindow):
     def _on_assets_changed(self):
         for mr in self.map_rows:
             mr.refresh_maps()
+
+    def _refresh_map_row_team_labels(self):
+        t1 = self.team1_panel.team_name.text().strip() or "Team 1"
+        t2 = self.team2_panel.team_name.text().strip() or "Team 2"
+        for mr in getattr(self, "map_rows", []):
+            mr.set_team_names(t1, t2)
 
     def _map_names(self) -> List[str]:
         return sorted(self.maps.keys())
@@ -3440,10 +3487,12 @@ class TournamentApp(QMainWindow):
             t1s = int(m.get("t1", 0)) if str(m.get("t1", "")).isdigit() else 0
             t2s = int(m.get("t2", 0)) if str(m.get("t2", "")).isdigit() else 0
             comp = 1 if m.get("completed", False) else 0
+            by_key = (m.get("draft_by") or "").strip().lower()
+            by_txt = "T1" if by_key == "t1" else "T2" if by_key == "t2" else ""
             body = (
                 f"Name={name}\n"
                 f"DraftAction={(m.get('draft_action') or '')}\n"
-                f"DraftBy={(m.get('draft_by') or '')}\n"
+                f"DraftBy={by_txt}\n"
                 f"T1={t1s}\n"
                 f"T2={t2s}\n"
                 f"Completed={comp}\n"
@@ -3511,11 +3560,11 @@ class TournamentApp(QMainWindow):
             a = mr.t1score.value()
             mr.t1score.setValue(mr.t2score.value())
             mr.t2score.setValue(a)
-            by = mr.draft_by.currentText()
-            if by == "T1":
-                mr.draft_by.setCurrentText("T2")
-            elif by == "T2":
-                mr.draft_by.setCurrentText("T1")
+            by = mr.selected_draft_by_key()
+            if by == "t1":
+                mr.set_selected_draft_by("t2")
+            elif by == "t2":
+                mr.set_selected_draft_by("t1")
 
         self._autosave()
 
@@ -3540,16 +3589,17 @@ class TournamentApp(QMainWindow):
             t1_score = mr.t1score.value() if allow_scores else 0
             t2_score = mr.t2score.value() if allow_scores else 0
             action = mr.draft_action.currentText()
-            by = mr.draft_by.currentText()
+            by = mr.selected_draft_by_key()
+            by_export = "T1" if by == "t1" else "T2" if by == "t2" else ""
             maps.append({
                 "index": idx,
                 "map": mr.map_combo.currentText(),
                 "draft_action": "" if action == "—" else action,
-                "draft_by": "" if by == "—" else by,
+                "draft_by": by,
                 "t1": t1_score,
                 "t2": t2_score,
                 "completed": bool(mr.completed.isChecked() if allow_scores else False),
-                "pick": ("" if action != "Pick" or by == "—" else by),
+                "pick": ("" if action != "Pick" or not by_export else by_export),
                 "winner": ("t1" if t1_score > t2_score
                            else "t2" if t2_score > t1_score
                            else "")
@@ -3601,7 +3651,17 @@ class TournamentApp(QMainWindow):
                     ix = mr.map_combo.findText(name)
                     mr.map_combo.setCurrentIndex(ix if ix >= 0 else 0)
                 action = (item.get("draft_action") or "").strip()
-                by = (item.get("draft_by") or "").strip()
+                by = (item.get("draft_by") or "").strip().lower()
+                if by == "t1":
+                    by = "t1"
+                elif by == "t2":
+                    by = "t2"
+                elif by == "team 1":
+                    by = "t1"
+                elif by == "team 2":
+                    by = "t2"
+                else:
+                    by = ""
 
                 # backward compatibility for older saves that only had `pick`
                 if not action:
@@ -3609,12 +3669,11 @@ class TournamentApp(QMainWindow):
                     if pick_txt in {"T1", "T2"}:
                         action = "Pick"
                         if not by:
-                            by = pick_txt
+                            by = "t1" if pick_txt == "T1" else "t2"
 
                 action_ix = mr.draft_action.findText(action if action else "—")
                 mr.draft_action.setCurrentIndex(action_ix if action_ix >= 0 else 0)
-                by_ix = mr.draft_by.findText(by if by else "—")
-                mr.draft_by.setCurrentIndex(by_ix if by_ix >= 0 else 0)
+                mr.set_selected_draft_by(by)
 
                 mr.t1score.setValue(int(item.get("t1", 0)))
                 mr.t2score.setValue(int(item.get("t2", 0)))
