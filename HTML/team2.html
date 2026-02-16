@@ -61,8 +61,6 @@
     const ADR_OK   = Number(qs.get('adr_ok'))   || 65;
     const HS_GOOD  = Number(qs.get('hs_good'))  || 45;
     const HS_OK    = Number(qs.get('hs_ok'))    || 35;
-    const KAST_GOOD = Number(qs.get('kast_good')) || 75;
-    const KAST_OK   = Number(qs.get('kast_ok'))   || 65;
 
     const titleEl = document.getElementById('title');
     const subtitleEl = document.getElementById('subtitle');
@@ -74,7 +72,6 @@
     const rateKD  = v => (v==null||isNaN(v))?null:(v>=KD_GOOD?'good':(v>=KD_OK?'okay':'bad'));
     const rateADR = v => (v==null||isNaN(v))?null:(v>=ADR_GOOD?'good':(v>=ADR_OK?'okay':'bad'));
     const rateHS  = v => (v==null||isNaN(v))?null:(v>=HS_GOOD?'good':(v>=HS_OK?'okay':'bad'));
-    const rateKAST = v => (v==null||isNaN(v))?null:(v>=KAST_GOOD?'good':(v>=KAST_OK?'okay':'bad'));
     const valOnly = t => `<span class="valtext">${t ?? '-'}</span>`;
     const boxClass = r => r ? ` valbox r-${r}` : ' valbox';
     const toNumber = (v) => { if(v==null||v==='') return null; const n=Number(String(v).replace('%','').replace(',','.').trim()); return Number.isFinite(n)?n:null; };
@@ -101,10 +98,8 @@
       const kd = toNumber(pick(player,['kd','kdr','kd_ratio','k_d']) ?? fromStats(player,['kd','kdr','kd ratio','k/d']));
       const adr = toNumber(pick(player,['adr','average_damage_per_round','damage_per_round']) ?? fromStats(player,['adr','average_damage_per_round','damage per round']));
       const hsBase = toNumber(pick(player,['hs_pct','hs','headshot_pct','headshot_percentage']) ?? fromStats(player,['hs%','headshots %','headshot %','headshot_percentage']));
-      const kastBase = toNumber(pick(player,['kast','kast_pct','kast_percentage']) ?? fromStats(player,['kast','kast %','kast_percentage']));
       const hs_pct = (hsBase != null && hsBase <= 1) ? hsBase * 100 : hsBase;
-      const kast_pct = (kastBase != null && kastBase <= 1) ? kastBase * 100 : kastBase;
-      return { nickname, kills, deaths, kd, adr, hs_pct, kast_pct };
+      return { nickname, kills, deaths, kd, adr, hs_pct };
     }
 
     function extractPlayers(payload){
@@ -134,7 +129,6 @@
       const kd  = (p.kd  != null) ? Number(p.kd).toFixed(2) : '-';
       const adr = (p.adr != null) ? Number(p.adr).toFixed(0) : '-';
       const hs  = (p.hs_pct != null) ? Number(p.hs_pct).toFixed(0) : '-';
-      const kast = (p.kast_pct != null) ? Number(p.kast_pct).toFixed(0) : '-';
       return `<div class="card">
         <img class="avatar" src="${AGENTS[idx] || AGENTS[0]}" alt="">
         <div class="nick">${p.nickname ?? '-'}</div>
@@ -144,7 +138,6 @@
           <div class="label">K/D</div><div class="val${boxClass(rateKD(Number(p.kd)))}">${valOnly(kd)}</div>
           <div class="label">ADR</div><div class="val${boxClass(rateADR(Number(p.adr)))}">${valOnly(adr)}</div>
           <div class="label">HS%</div><div class="val${boxClass(rateHS(Number(p.hs_pct)))}">${valOnly(hs)}</div>
-          <div class="label">KAST</div><div class="val${boxClass(rateKAST(Number(p.kast_pct)))}">${valOnly(kast)}</div>
         </div>
       </div>`;
     }
