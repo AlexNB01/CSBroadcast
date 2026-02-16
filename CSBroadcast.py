@@ -2386,8 +2386,11 @@ class TournamentApp(QMainWindow):
         self.faceit_group_stage.setPlaceholderText("Group stage Faceit URL")
         self.faceit_playoffs = QLineEdit()
         self.faceit_playoffs.setPlaceholderText("Playoffs Faceit URL")
+        self.faceit_api_key = QLineEdit()
+        self.faceit_api_key.setPlaceholderText("FACEIT API key")
         tournament_faceit_layout.addRow("Group stage", self.faceit_group_stage)
         tournament_faceit_layout.addRow("Playoffs", self.faceit_playoffs)
+        tournament_faceit_layout.addRow("FACEIT API key", self.faceit_api_key)
         match_root.addWidget(tournament_faceit_box)
 
         maps_box = QGroupBox("Maps")
@@ -3242,7 +3245,8 @@ class TournamentApp(QMainWindow):
         cmp_team("t2", o2, n2)
         ofl, nfl = old.get("tournament_faceit", {}) or {}, new.get("tournament_faceit", {}) or {}
         if (ofl.get("group_stage") or "").strip() != (nfl.get("group_stage") or "").strip() or \
-           (ofl.get("playoffs") or "").strip() != (nfl.get("playoffs") or "").strip():
+           (ofl.get("playoffs") or "").strip() != (nfl.get("playoffs") or "").strip() or \
+           (ofl.get("api_key") or "").strip() != (nfl.get("api_key") or "").strip():
             keys.append("faceit.links")
         if _players_changed(o1, n1): keys.append("t1.players")
         if _players_changed(o2, n2): keys.append("t2.players")
@@ -3511,6 +3515,7 @@ class TournamentApp(QMainWindow):
         t_faceit = state.get("tournament_faceit", {}) or {}
         self._write_txt(os.path.join(match_dir, "FaceitGroupStage.txt"), (t_faceit.get("group_stage") or "").strip())
         self._write_txt(os.path.join(match_dir, "FaceitPlayoffs.txt"), (t_faceit.get("playoffs") or "").strip())
+        self._write_txt(os.path.join(match_dir, "FaceitApiKey.txt"), (t_faceit.get("api_key") or "").strip())
 
         cur = state.get("current_map")
         self._write_txt(os.path.join(match_dir, "CurrentMap.txt"), "" if cur is None else str(cur))
@@ -3562,6 +3567,7 @@ class TournamentApp(QMainWindow):
         self.team2_panel.reset()
         self.faceit_group_stage.clear()
         self.faceit_playoffs.clear()
+        self.faceit_api_key.clear()
         self.team1_panel.color_hex = "#55aaff"; self.team1_panel._apply_color_style()
         self.team2_panel.color_hex = "#ff557f"; self.team2_panel._apply_color_style()
         for i, rb in enumerate(self.current_map_buttons, start=1):
@@ -3654,6 +3660,7 @@ class TournamentApp(QMainWindow):
             "tournament_faceit": {
                 "group_stage": self.faceit_group_stage.text().strip(),
                 "playoffs": self.faceit_playoffs.text().strip(),
+                "api_key": self.faceit_api_key.text().strip(),
             },
             "assets": {
                 "maps": {k: asdict(v) for k, v in self.maps.items()},
@@ -3688,6 +3695,7 @@ class TournamentApp(QMainWindow):
         t_faceit = state.get("tournament_faceit", {}) or {}
         self.faceit_group_stage.setText((t_faceit.get("group_stage") or "").strip())
         self.faceit_playoffs.setText((t_faceit.get("playoffs") or "").strip())
+        self.faceit_api_key.setText((t_faceit.get("api_key") or "").strip())
 
         for mr in self.map_rows:
             mr.reset()
@@ -3874,6 +3882,7 @@ class TournamentApp(QMainWindow):
             "tournament_faceit": {
                 "group_stage": (self.faceit_group_stage.text() or "").strip(),
                 "playoffs": (self.faceit_playoffs.text() or "").strip(),
+                "api_key": (self.faceit_api_key.text() or "").strip(),
             },
             "general": g,
             "assets": {"maps":{}},
@@ -3895,6 +3904,7 @@ class TournamentApp(QMainWindow):
             "tournament_faceit": {
                 "group_stage": (self.faceit_group_stage.text() or "").strip(),
                 "playoffs": (self.faceit_playoffs.text() or "").strip(),
+                "api_key": (self.faceit_api_key.text() or "").strip(),
             },
             "general": g,
             "waiting": w,
