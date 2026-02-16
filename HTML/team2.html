@@ -11,12 +11,13 @@
     :root{--primary:#0f1114;--secondary:#ffffff;--tertiary:#5a1f31;--quaternary:#ff557f;--team:#ff557f;--card:color-mix(in srgb,var(--primary) 88%,transparent);--muted:#ffdbe6;--text:var(--secondary);--pad-x:48px;--pad-y:28px;--gap:32px;--card-r:20px;--card-p:22px;--avatar:156px;--ico:26px;--label:20px;--value:30px;}
     html,body{margin:0;padding:0;width:1920px;height:1080px;background:rgba(0,0,0,0);overflow:hidden;font-family:'Rajdhani',system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;color:var(--text)}
     *{box-sizing:border-box}
-    .wrap{width:1920px; margin:0 auto; padding:var(--pad-y) var(--pad-x);display:flex;flex-direction:column;align-items:center}
-    .page-header{display:flex;align-items:flex-start;justify-content:center;width:100%;margin-bottom:18px}
+    .wrap{position:relative;width:1920px;height:1080px;margin:0 auto;padding:var(--pad-y) var(--pad-x)}
+    .page-header{position:absolute;left:var(--pad-x);top:var(--pad-y);display:flex;align-items:flex-start;justify-content:flex-start;z-index:2}
     .header-text{background:var(--primary);border-left:10px solid var(--team);border-radius:16px;padding:18px 26px;box-shadow:0 14px 32px rgba(0,0,0,.35);display:flex;flex-direction:column;gap:4px}
     .title{font-size:58px;font-weight:800;line-height:1.0;margin:0;letter-spacing:1px;text-transform:uppercase;color:var(--secondary)}
     .subtitle{font-size:28px;font-weight:500;opacity:.75;margin:0;min-height:1.2em;color:var(--secondary)}
-    .grid{display:grid;grid-template-columns:repeat(5,1fr);gap:var(--gap);width:max-content;max-width:100%;justify-content:center}
+    .grid-stage{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:0 var(--pad-x)}
+    .grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:var(--gap);width:100%}
     .card{background:var(--card);border-radius:var(--card-r);padding:var(--card-p);text-align:center;border-top:4px solid var(--team);box-shadow:0 8px 20px rgba(0,0,0,.28)}
     .avatar{width:var(--avatar);height:var(--avatar);border-radius:50%;object-fit:cover;background:#fff;margin:0 auto 12px;border:3px solid rgba(255,255,255,.2)}
     .nick{font-size:38px;font-weight:800;margin-bottom:6px;text-transform:uppercase}
@@ -40,8 +41,10 @@
         <h2 id="subtitle" class="subtitle"></h2>
       </div>
     </div>
-    <div id="grid" class="grid"></div>
-    <div id="status" class="status"></div>
+    <div class="grid-stage">
+      <div id="grid" class="grid"></div>
+      <div id="status" class="status"></div>
+    </div>
   </div>
 
   <script>
