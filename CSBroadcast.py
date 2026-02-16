@@ -17,8 +17,6 @@ from PyQt5.QtWidgets import (
 # -----------------------------
 # Data models
 # -----------------------------
-ROLES = ["Tank", "Damage", "Support", "Flex"]
-
 DEV_ASSET_DIRS = {
     "maps":      r"C:\Suomi OW koodiprojektit\SOWBroadcast\Scoreboard\Maps",
     "gametypes": r"C:\Suomi OW koodiprojektit\SOWBroadcast\Scoreboard\Gametypes",
@@ -68,6 +66,7 @@ class Asset:
 @dataclass
 class Player:
     name: str = ""
+    faceit_link: str = ""
     hero: str = ""
     role: str = ""
 
@@ -585,36 +584,20 @@ class AssetManagerDialog(QDialog):
 # Team Panel
 # -----------------------------
 class PlayerRow(QWidget):
-    def __init__(self, index: int, get_hero_names):
+    def __init__(self, index: int):
         super().__init__()
-        self.get_hero_names = get_hero_names
         row = QHBoxLayout(self)
         row.setContentsMargins(0, 0, 0, 0)
         self.label = QLabel(f"Player {index}")
         self.name = QLineEdit(); self.name.setPlaceholderText("Name")
-        self.hero = QComboBox(); self.refresh_heroes()
-        self.role = QComboBox()
-        self.role.addItem("- Role -")
-        self.role.addItems(ROLES)
+        self.faceit_link = QLineEdit(); self.faceit_link.setPlaceholderText("Faceit link")
         row.addWidget(self.label)
-        row.addWidget(self.name, 2)
-        row.addWidget(self.hero, 2)
-        row.addWidget(self.role, 1)
-
-    def refresh_heroes(self):
-        current = self.hero.currentText() if hasattr(self, 'hero') else ""
-        self.hero.clear()
-        self.hero.addItem("— Hero —")
-        self.hero.addItems(self.get_hero_names())
-        if current:
-            ix = self.hero.findText(current)
-            if ix >= 0:
-                self.hero.setCurrentIndex(ix)
+        row.addWidget(self.name, 1)
+        row.addWidget(self.faceit_link, 1)
 
 class TeamPanel(QGroupBox):
-    def __init__(self, title: str, get_hero_names, default_color: str = "#FFFFFF"):
+    def __init__(self, title: str, default_color: str = "#FFFFFF"):
         super().__init__(title)
-        self.get_hero_names = get_hero_names
         lay = QVBoxLayout(self)
 
         top = QHBoxLayout()
@@ -637,7 +620,7 @@ class TeamPanel(QGroupBox):
         left.addWidget(QLabel("Name"))
         left.addWidget(self.team_name)
         left.addWidget(QLabel("Abbreviation"))          
-        left.addWidget(self.team_abbr)                   
+        left.addWidget(self.team_abbr)
 
         score_row = QHBoxLayout(); score_row.addWidget(QLabel("Score")); score_row.addWidget(self.score)
         color_row = QHBoxLayout(); color_row.addWidget(QLabel("Team Color")); color_row.addWidget(self.color_btn)
@@ -652,7 +635,7 @@ class TeamPanel(QGroupBox):
         grid = QVBoxLayout()
         self.player_rows: List[PlayerRow] = []
         for i in range(1, 9):
-            pr = PlayerRow(i, self.get_hero_names)
+            pr = PlayerRow(i)
             self.player_rows.append(pr)
             grid.addWidget(pr)
         lay.addLayout(grid)
@@ -702,13 +685,8 @@ class TeamPanel(QGroupBox):
         for pr in self.player_rows:
             p = Player(
                 name=pr.name.text().strip(),
-                hero=pr.hero.currentText(),
-                role=pr.role.currentText()
+                faceit_link=pr.faceit_link.text().strip(),
             )
-            if p.hero == "— Hero —":
-                p.hero = ""
-            if p.role == "- Role -":
-                p.role = ""
             t.players.append(p)
         return t
 
@@ -727,21 +705,10 @@ class TeamPanel(QGroupBox):
         self._apply_color_style()
         for pr, pdata in zip(self.player_rows, t.players + [Player()] * (8 - len(t.players))):
             pr.name.setText(pdata.name)
-            pr.refresh_heroes()
-            if pdata.hero:
-                ix = pr.hero.findText(pdata.hero)
-                pr.hero.setCurrentIndex(ix if ix >= 0 else 0)
-            else:
-                pr.hero.setCurrentIndex(0)
-            if pdata.role:
-                ixr = pr.role.findText(pdata.role)
-                pr.role.setCurrentIndex(ixr if ixr >= 0 else 0)
-            else:
-                pr.role.setCurrentIndex(0)
+            pr.faceit_link.setText(getattr(pdata, "faceit_link", "") or "")
 
     def refresh_hero_lists(self):
-        for pr in self.player_rows:
-            pr.refresh_heroes()
+        return
     
     def reset(self):
         self.team_name.clear()
@@ -750,16 +717,18 @@ class TeamPanel(QGroupBox):
         self.logo_path = None
         self.logo_preview.clear()
         for pr in self.player_rows:
-            pr.name.clear(); pr.hero.setCurrentIndex(0); pr.role.setCurrentIndex(0)
+            pr.name.clear()
+            pr.faceit_link.clear()
 
 # -----------------------------
 # Map rows
 # -----------------------------
 class MapRow(QWidget):
-    def __init__(self, index: int, get_map_names, get_hero_names):
+    DRAFT_ACTIONS_WITH_SCORE = {"Pick", "Decider"}
+
+    def __init__(self, index: int, get_map_names):
         super().__init__()
         self.get_map_names = get_map_names
-        self.get_hero_names = get_hero_names
         self.index = index
 
         row = QHBoxLayout(self)
@@ -768,29 +737,41 @@ class MapRow(QWidget):
         self.label = QLabel(f"Map {index}")
 
         self.map_combo = QComboBox(); self.refresh_maps()
+
+        self.draft_action = QComboBox()
+        self.draft_action.addItems(["—", "Ban", "Pick", "Decider"])
+        self.draft_by = QComboBox()
+        self.draft_by.addItem("—", "")
+        self.set_team_names("Team 1", "Team 2")
+
         self.t1score = QSpinBox(); self.t1score.setRange(0, 200)
         self.t2score = QSpinBox(); self.t2score.setRange(0, 200)
 
-        self.pick = QComboBox()
-        self.pick.addItems(["—", "T1", "T2"])
-
         self.completed = QCheckBox("Completed")
-
-        self.t1ban = QComboBox(); self.refresh_hero_list(self.t1ban)
-        self.t2ban = QComboBox(); self.refresh_hero_list(self.t2ban)
 
         row.addWidget(self.label)
         row.addWidget(self.map_combo, 2)
+        row.addWidget(QLabel("Action"))
+        row.addWidget(self.draft_action)
+        row.addWidget(QLabel("By"))
+        row.addWidget(self.draft_by)
         row.addWidget(self.t1score)
         row.addWidget(QLabel("-"))
         row.addWidget(self.t2score)
-        row.addWidget(QLabel("Pick"))
-        row.addWidget(self.pick)
-        row.addWidget(QLabel("T1 Ban"))
-        row.addWidget(self.t1ban, 2)
-        row.addWidget(QLabel("T2 Ban"))
-        row.addWidget(self.t2ban, 2)
         row.addWidget(self.completed)
+
+        self.draft_action.currentTextChanged.connect(self._update_score_enabled)
+        self._update_score_enabled()
+
+    def _update_score_enabled(self):
+        allow_scores = self.draft_action.currentText() in self.DRAFT_ACTIONS_WITH_SCORE
+        self.t1score.setEnabled(allow_scores)
+        self.t2score.setEnabled(allow_scores)
+        self.completed.setEnabled(allow_scores)
+        if not allow_scores:
+            self.t1score.setValue(0)
+            self.t2score.setValue(0)
+            self.completed.setChecked(False)
 
     def refresh_maps(self):
         current = self.map_combo.currentText() if hasattr(self, "map_combo") else ""
@@ -802,27 +783,56 @@ class MapRow(QWidget):
             ix = self.map_combo.findText(current)
             self.map_combo.setCurrentIndex(ix if ix >= 0 else 0)
 
-    def refresh_hero_list(self, combo: QComboBox):
-        current = combo.currentText() if combo.count() > 0 else ""
-        combo.clear()
-        combo.addItem("— Hero —")
-        for h in sorted(self.get_hero_names() or []):
-            combo.addItem(h)
-        if current:
-            ix = combo.findText(current)
-            combo.setCurrentIndex(ix if ix >= 0 else 0)
+    def allows_scores(self) -> bool:
+        return self.draft_action.currentText() in self.DRAFT_ACTIONS_WITH_SCORE
 
+    def set_team_names(self, team1_name: str, team2_name: str):
+        current_key = self.selected_draft_by_key()
+        t1 = (team1_name or "").strip() or "Team 1"
+        t2 = (team2_name or "").strip() or "Team 2"
+        self.draft_by.blockSignals(True)
+        self.draft_by.clear()
+        self.draft_by.addItem("—", "")
+        self.draft_by.addItem(t1, "t1")
+        self.draft_by.addItem(t2, "t2")
+        self.draft_by.blockSignals(False)
+        self.set_selected_draft_by(current_key)
+
+    def selected_draft_by_key(self) -> str:
+        key = self.draft_by.currentData()
+        if key in {"t1", "t2"}:
+            return key
+        text = (self.draft_by.currentText() or "").strip().lower()
+        if text in {"t1", "team 1"}:
+            return "t1"
+        if text in {"t2", "team 2"}:
+            return "t2"
+        return ""
+
+    def set_selected_draft_by(self, key: str):
+        norm = (key or "").strip().lower()
+        if norm == "team 1":
+            norm = "t1"
+        elif norm == "team 2":
+            norm = "t2"
+        if norm == "t1":
+            ix = self.draft_by.findData("t1")
+        elif norm == "t2":
+            ix = self.draft_by.findData("t2")
+        else:
+            ix = self.draft_by.findData("")
+        self.draft_by.setCurrentIndex(ix if ix >= 0 else 0)
 
     def reset(self):
         self.map_combo.setCurrentIndex(0)
+        self.draft_action.setCurrentIndex(0)
+        self.set_selected_draft_by("")
         self.t1score.setValue(0)
         self.t2score.setValue(0)
         self.completed.setChecked(False)
-        self.pick.setCurrentIndex(0)
-        self.t1ban.setCurrentIndex(0)
-        self.t2ban.setCurrentIndex(0)
+        self._update_score_enabled()
 
-        
+
 class GeneralTab(QWidget):
     updated = pyqtSignal()
     COLOR_FIELDS = [
@@ -2361,21 +2371,37 @@ class TournamentApp(QMainWindow):
         match_root = QVBoxLayout(match_tab)
 
         splitter = QSplitter()
-        self.team1_panel = TeamPanel("Team 1", self._hero_names, default_color="#55aaff")
-        self.team2_panel = TeamPanel("Team 2", self._hero_names, default_color="#ff557f")
+        self.team1_panel = TeamPanel("Team 1", default_color="#55aaff")
+        self.team2_panel = TeamPanel("Team 2", default_color="#ff557f")
+        self.team1_panel.team_name.textChanged.connect(self._refresh_map_row_team_labels)
+        self.team2_panel.team_name.textChanged.connect(self._refresh_map_row_team_labels)
         splitter.addWidget(self.team1_panel)
         splitter.addWidget(self.team2_panel)
         splitter.setSizes([700, 700])
         match_root.addWidget(splitter, 6)
+
+        tournament_faceit_box = QGroupBox("Tournament Faceit Links")
+        tournament_faceit_layout = QFormLayout(tournament_faceit_box)
+        self.faceit_group_stage = QLineEdit()
+        self.faceit_group_stage.setPlaceholderText("Group stage Faceit URL")
+        self.faceit_playoffs = QLineEdit()
+        self.faceit_playoffs.setPlaceholderText("Playoffs Faceit URL")
+        self.faceit_api_key = QLineEdit()
+        self.faceit_api_key.setPlaceholderText("FACEIT API key")
+        tournament_faceit_layout.addRow("Group stage", self.faceit_group_stage)
+        tournament_faceit_layout.addRow("Playoffs", self.faceit_playoffs)
+        tournament_faceit_layout.addRow("FACEIT API key", self.faceit_api_key)
+        match_root.addWidget(tournament_faceit_box)
 
         maps_box = QGroupBox("Maps")
         maps_layout = QVBoxLayout(maps_box)
 
         self.map_rows: List[MapRow] = []
         for i in range(1, 8):
-            mr = MapRow(i, self._map_names, self._hero_names)
+            mr = MapRow(i, self._map_names)
             self.map_rows.append(mr)
             maps_layout.addWidget(mr)
+        self._refresh_map_row_team_labels()
 
         current_row = QHBoxLayout()
         current_row.addWidget(QLabel("Current:"))
@@ -2416,11 +2442,6 @@ class TournamentApp(QMainWindow):
         tabs.addTab(self.waiting_tab, "Waiting Screen")
 
         
-        # --- DRAFT TAB (map pool) ---
-        self.draft_tab = DraftTab(self._maps_by_mode)
-        self.draft_tab.updated.connect(self._update)
-        tabs.addTab(self.draft_tab, "Draft")
-
         # --- STANDINGS TAB ---
         self.standings_tab = StandingsTab()
         self.standings_tab.updated.connect(self._update)
@@ -2819,21 +2840,9 @@ class TournamentApp(QMainWindow):
         customm = mb.addMenu("Customize")
         teamsm = mb.addMenu("Teams")
 
-        act_hero = QAction("Manage Heroes…", self)
-        act_hero.triggered.connect(lambda: self._open_asset_manager("Heroes", self.heroes, self._on_assets_changed))
         act_map = QAction("Manage Maps…", self)
         act_map.triggered.connect(lambda: self._open_asset_manager("Maps", self.maps, self._on_assets_changed))
-        act_mode = QAction("Manage Game Modes…", self)
-        act_mode.triggered.connect(lambda: self._open_asset_manager("Game Modes", self.modes, self._on_assets_changed))
-        
-        act_bulk_import = QAction("Bulk Import from Folders…", self)
-        act_bulk_import.triggered.connect(self._bulk_import_wizard)
-
-        customm.addAction(act_hero)
         customm.addAction(act_map)
-        customm.addAction(act_mode)
-        customm.addSeparator()
-        customm.addAction(act_bulk_import)        
 
         act_load = QAction("Load…", self); act_load.triggered.connect(self._load_from_file)
         act_save = QAction("Save", self); act_save.triggered.connect(self._save)
@@ -2863,10 +2872,7 @@ class TournamentApp(QMainWindow):
         teamsm.addAction(act_im_away)
 
     def _open_asset_manager(self, title: str, store: Dict[str, Asset], on_close):
-        mode_names = None
-        if title == "Maps":
-            mode_names = list(self.modes.keys())
-        dlg = AssetManagerDialog(self, title, store, mode_names=mode_names)
+        dlg = AssetManagerDialog(self, title, store, mode_names=None)
         dlg.exec_()
         on_close()
 
@@ -2890,17 +2896,14 @@ class TournamentApp(QMainWindow):
 
 
     def _on_assets_changed(self):
-        self.team1_panel.refresh_hero_lists()
-        self.team2_panel.refresh_hero_lists()
         for mr in self.map_rows:
             mr.refresh_maps()
-            mr.refresh_hero_list(mr.t1ban)
-            mr.refresh_hero_list(mr.t2ban)
-        if hasattr(self, "draft_tab"):
-            self.draft_tab.reload()
 
-    def _hero_names(self) -> List[str]:
-        return sorted(self.heroes.keys())
+    def _refresh_map_row_team_labels(self):
+        t1 = self.team1_panel.team_name.text().strip() or "Team 1"
+        t2 = self.team2_panel.team_name.text().strip() or "Team 2"
+        for mr in getattr(self, "map_rows", []):
+            mr.set_team_names(t1, t2)
 
     def _map_names(self) -> List[str]:
         return sorted(self.maps.keys())
@@ -2993,7 +2996,12 @@ class TournamentApp(QMainWindow):
             "abbr": t.abbr,
             "logo_png": logo_name if t.logo_path else None,
             "players": [
-                {"name": p.name, "hero": p.hero, "role": p.role}
+                {
+                    "name": p.name,
+                    "faceit_link": getattr(p, "faceit_link", "") or "",
+                    "hero": p.hero,
+                    "role": p.role,
+                }
                 for p in (t.players or [])
             ],
         }
@@ -3026,7 +3034,12 @@ class TournamentApp(QMainWindow):
 
         players = []
         for p in data.get("players", []):
-            players.append(Player(name=p.get("name",""), hero=p.get("hero",""), role=p.get("role","")))
+            players.append(Player(
+                name=p.get("name", ""),
+                faceit_link=p.get("faceit_link", p.get("faceit", "")),
+                hero=p.get("hero", ""),
+                role=p.get("role", ""),
+            ))
         while len(players) < 8:
             players.append(Player())
 
@@ -3156,10 +3169,11 @@ class TournamentApp(QMainWindow):
         keys = []
         if not old:
             return [
-                "assets.heroes", "assets.maps", "assets.modes",
+                "assets.maps",
                 "general.colors",
-                "t1.name","t1.score","t1.color","t1.logo","t1.ban","t1.abbr","t1.players",
-                "t2.name","t2.score","t2.color","t2.logo","t2.ban","t2.abbr","t2.players",
+                "t1.name","t1.score","t1.color","t1.logo","t1.abbr","t1.players",
+                "t2.name","t2.score","t2.color","t2.logo","t2.abbr","t2.players",
+                "faceit.links",
                 "general.caster1","general.caster2","general.host",
                 "waiting.texts","waiting.timer","waiting.videos","waiting.socials",
                 "maps", "standings", "bracket"
@@ -3170,7 +3184,7 @@ class TournamentApp(QMainWindow):
         og, ng = old.get("general", {}), new.get("general", {})
 
         oa, na = old.get("assets", {}) or {}, new.get("assets", {}) or {}
-        for cat in ("heroes", "maps", "modes"):
+        for cat in ("maps",):
             od = oa.get(cat) or {}
             nd = na.get(cat) or {}
             changed = False
@@ -3213,7 +3227,6 @@ class TournamentApp(QMainWindow):
             if o.get("score") != n.get("score"): keys.append(f"{prefix}.score")
             if o.get("color_hex") != n.get("color_hex"): keys.append(f"{prefix}.color")
             if o.get("logo_path") != n.get("logo_path"): keys.append(f"{prefix}.logo")
-            if o.get("banned_hero") != n.get("banned_hero"): keys.append(f"{prefix}.ban")
             if o.get("abbr") != n.get("abbr"): keys.append(f"{prefix}.abbr")
 
         def _players_changed(o_team: dict, n_team: dict) -> bool:
@@ -3222,14 +3235,19 @@ class TournamentApp(QMainWindow):
             if len(ol) != len(nl):
                 return True
             for a, b in zip(ol, nl):
-                if ((a.get("name") or "").strip() != (b.get("name") or "").strip() or
-                    (a.get("role") or "").strip() != (b.get("role") or "").strip() or
-                    (a.get("hero") or "").strip() != (b.get("hero") or "").strip()):
+                if (a.get("name") or "").strip() != (b.get("name") or "").strip():
+                    return True
+                if (a.get("faceit_link") or "").strip() != (b.get("faceit_link") or "").strip():
                     return True
             return False
 
         cmp_team("t1", o1, n1)
         cmp_team("t2", o2, n2)
+        ofl, nfl = old.get("tournament_faceit", {}) or {}, new.get("tournament_faceit", {}) or {}
+        if (ofl.get("group_stage") or "").strip() != (nfl.get("group_stage") or "").strip() or \
+           (ofl.get("playoffs") or "").strip() != (nfl.get("playoffs") or "").strip() or \
+           (ofl.get("api_key") or "").strip() != (nfl.get("api_key") or "").strip():
+            keys.append("faceit.links")
         if _players_changed(o1, n1): keys.append("t1.players")
         if _players_changed(o2, n2): keys.append("t2.players")
 
@@ -3248,10 +3266,8 @@ class TournamentApp(QMainWindow):
             keys.append("maps")
         else:
             for a, b in zip(om, nm):
-                if (a.get("map"), a.get("t1"), a.get("t2"), a.get("completed"), a.get("pick"),
-                    a.get("t1_ban"), a.get("t2_ban")) != \
-                   (b.get("map"), b.get("t1"), b.get("t2"), b.get("completed"), b.get("pick"),
-                    b.get("t1_ban"), b.get("t2_ban")):
+                if (a.get("map"), a.get("draft_action"), a.get("draft_by"), a.get("t1"), a.get("t2"), a.get("completed"), a.get("pick")) != \
+                   (b.get("map"), b.get("draft_action"), b.get("draft_by"), b.get("t1"), b.get("t2"), b.get("completed"), b.get("pick")):
                     keys.append("maps"); break
 
         if (old.get("standings") or {}) != (new.get("standings") or {}):
@@ -3485,9 +3501,8 @@ class TournamentApp(QMainWindow):
             lines = []
             for i, p in enumerate(team.get("players") or [], start=1):
                 name = (p.get("name") or "").replace("\t", " ")
-                hero = (p.get("hero") or "").replace("\t", " ")
-                role = (p.get("role") or "").replace("\t", " ")
-                lines.append(f"{i}\t{name}\t{hero}\t{role}")
+                faceit = (p.get("faceit_link") or "").replace("\t", " ")
+                lines.append(f"{i}\t{name}\t{faceit}")
             self._write_txt(os.path.join(match_dir, f"{prefix}Players.txt"), "\n".join(lines) + ("\n" if lines else ""))
 
             logo_src = team.get("logo_path")
@@ -3497,6 +3512,10 @@ class TournamentApp(QMainWindow):
         t2 = state.get("team2") or {}
         write_team_flat("T1", t1)
         write_team_flat("T2", t2)
+        t_faceit = state.get("tournament_faceit", {}) or {}
+        self._write_txt(os.path.join(match_dir, "FaceitGroupStage.txt"), (t_faceit.get("group_stage") or "").strip())
+        self._write_txt(os.path.join(match_dir, "FaceitPlayoffs.txt"), (t_faceit.get("playoffs") or "").strip())
+        self._write_txt(os.path.join(match_dir, "FaceitApiKey.txt"), (t_faceit.get("api_key") or "").strip())
 
         cur = state.get("current_map")
         self._write_txt(os.path.join(match_dir, "CurrentMap.txt"), "" if cur is None else str(cur))
@@ -3510,14 +3529,16 @@ class TournamentApp(QMainWindow):
             t1s = int(m.get("t1", 0)) if str(m.get("t1", "")).isdigit() else 0
             t2s = int(m.get("t2", 0)) if str(m.get("t2", "")).isdigit() else 0
             comp = 1 if m.get("completed", False) else 0
+            by_key = (m.get("draft_by") or "").strip().lower()
+            by_txt = "T1" if by_key == "t1" else "T2" if by_key == "t2" else ""
             body = (
-                f"Name={(m.get('map') or '').replace('\n', ' ').strip()}\n"
+                f"Name={name}\n"
+                f"DraftAction={(m.get('draft_action') or '')}\n"
+                f"DraftBy={by_txt}\n"
                 f"T1={t1s}\n"
                 f"T2={t2s}\n"
                 f"Completed={comp}\n"
                 f"Pick={(m.get('pick') or '')}\n"
-                f"T1Ban={(m.get('t1_ban') or '')}\n"
-                f"T2Ban={(m.get('t2_ban') or '')}\n"
             )
             self._write_txt(os.path.join(match_dir, f"Map{idx}.txt"), body)
         self._write_txt(os.path.join(match_dir, "matchtext.txt"), self.build_match_text(state))
@@ -3529,17 +3550,14 @@ class TournamentApp(QMainWindow):
         for i in range(8):
             p = t1_players[i] if i < len(t1_players) else {}
             self._write_txt(os.path.join(match_dir, f"T1P{i+1}Name.txt"), (p.get("name") or "").strip())
-            self._write_txt(os.path.join(match_dir, f"T1P{i+1}Role.txt"), (p.get("role") or "").strip())
-            self._write_txt(os.path.join(match_dir, f"T1P{i+1}Hero.txt"), (p.get("hero") or "").strip())
+            self._write_txt(os.path.join(match_dir, f"T1P{i+1}Faceit.txt"), (p.get("faceit_link") or "").strip())
 
         t2_players = (state.get("team2") or {}).get("players") or []
         for i in range(8):
             p = t2_players[i] if i < len(t2_players) else {}
             self._write_txt(os.path.join(match_dir, f"T2P{i+1}Name.txt"), (p.get("name") or "").strip())
-            self._write_txt(os.path.join(match_dir, f"T2P{i+1}Role.txt"), (p.get("role") or "").strip())
-            self._write_txt(os.path.join(match_dir, f"T2P{i+1}Hero.txt"), (p.get("hero") or "").strip())
+            self._write_txt(os.path.join(match_dir, f"T2P{i+1}Faceit.txt"), (p.get("faceit_link") or "").strip())
             
-        self._export_map_pool_to_match(state)
 
     # ---------------------
     # Actions: Reset & Swap
@@ -3547,6 +3565,9 @@ class TournamentApp(QMainWindow):
     def _reset_all(self):
         self.team1_panel.reset()
         self.team2_panel.reset()
+        self.faceit_group_stage.clear()
+        self.faceit_playoffs.clear()
+        self.faceit_api_key.clear()
         self.team1_panel.color_hex = "#55aaff"; self.team1_panel._apply_color_style()
         self.team2_panel.color_hex = "#ff557f"; self.team2_panel._apply_color_style()
         for i, rb in enumerate(self.current_map_buttons, start=1):
@@ -3586,15 +3607,11 @@ class TournamentApp(QMainWindow):
             a = mr.t1score.value()
             mr.t1score.setValue(mr.t2score.value())
             mr.t2score.setValue(a)
-            idx = mr.pick.currentIndex()
-            if idx == 1:
-                mr.pick.setCurrentIndex(2)
-            elif idx == 2:
-                mr.pick.setCurrentIndex(1)
-            t1b_ix = mr.t1ban.currentIndex()
-            t2b_ix = mr.t2ban.currentIndex()
-            mr.t1ban.setCurrentIndex(t2b_ix)
-            mr.t2ban.setCurrentIndex(t1b_ix)
+            by = mr.selected_draft_by_key()
+            if by == "t1":
+                mr.set_selected_draft_by("t2")
+            elif by == "t2":
+                mr.set_selected_draft_by("t1")
 
         self._autosave()
 
@@ -3615,17 +3632,23 @@ class TournamentApp(QMainWindow):
 
         maps = []
         for idx, mr in enumerate(self.map_rows, start=1):
+            allow_scores = mr.allows_scores()
+            t1_score = mr.t1score.value() if allow_scores else 0
+            t2_score = mr.t2score.value() if allow_scores else 0
+            action = mr.draft_action.currentText()
+            by = mr.selected_draft_by_key()
+            by_export = "T1" if by == "t1" else "T2" if by == "t2" else ""
             maps.append({
                 "index": idx,
                 "map": mr.map_combo.currentText(),
-                "t1": mr.t1score.value(),
-                "t2": mr.t2score.value(),
-                "completed": mr.completed.isChecked(),
-                "pick": mr.pick.currentText(),
-                "t1_ban": ("" if mr.t1ban.currentText() == "— Hero —" else mr.t1ban.currentText()),
-                "t2_ban": ("" if mr.t2ban.currentText() == "— Hero —" else mr.t2ban.currentText()),
-                "winner": ("t1" if mr.t1score.value() > mr.t2score.value()
-                           else "t2" if mr.t2score.value() > mr.t1score.value()
+                "draft_action": "" if action == "—" else action,
+                "draft_by": by,
+                "t1": t1_score,
+                "t2": t2_score,
+                "completed": bool(mr.completed.isChecked() if allow_scores else False),
+                "pick": ("" if action != "Pick" or not by_export else by_export),
+                "winner": ("t1" if t1_score > t2_score
+                           else "t2" if t2_score > t1_score
                            else "")
             })
 
@@ -3634,11 +3657,13 @@ class TournamentApp(QMainWindow):
             "team2": asdict(t2),
             "maps": maps,
             "current_map": current_ix,
-            "map_pool": self.draft_tab.get_pool() if hasattr(self, "draft_tab") else [],
+            "tournament_faceit": {
+                "group_stage": self.faceit_group_stage.text().strip(),
+                "playoffs": self.faceit_playoffs.text().strip(),
+                "api_key": self.faceit_api_key.text().strip(),
+            },
             "assets": {
-                "heroes": {k: asdict(v) for k, v in self.heroes.items()},
                 "maps": {k: asdict(v) for k, v in self.maps.items()},
-                "modes": {k: asdict(v) for k, v in self.modes.items()},
             }
         }
         general = self.general_tab.to_settings()
@@ -3656,17 +3681,21 @@ class TournamentApp(QMainWindow):
 
     def _apply_state(self, state: dict):
         assets = state.get("assets", {})
-        self.heroes = {k: Asset(**v) for k, v in assets.get("heroes", {}).items()}
         self.maps = {k: Asset(**v) for k, v in assets.get("maps", {}).items()}
-        self.modes = {k: Asset(**v) for k, v in assets.get("modes", {}).items()}
         self._on_assets_changed()
 
-        t1 = Team(**{k: v for k, v in state.get("team1", {}).items() if k != "players"})
+        team_allowed = {"name", "abbr", "logo_path", "score", "color_hex", "banned_hero"}
+        t1 = Team(**{k: v for k, v in state.get("team1", {}).items() if k in team_allowed})
         t1.players = [Player(**p) for p in state.get("team1", {}).get("players", [])]
-        t2 = Team(**{k: v for k, v in state.get("team2", {}).items() if k != "players"})
+        t2 = Team(**{k: v for k, v in state.get("team2", {}).items() if k in team_allowed})
         t2.players = [Player(**p) for p in state.get("team2", {}).get("players", [])]
         self.team1_panel.from_team(t1)
         self.team2_panel.from_team(t2)
+
+        t_faceit = state.get("tournament_faceit", {}) or {}
+        self.faceit_group_stage.setText((t_faceit.get("group_stage") or "").strip())
+        self.faceit_playoffs.setText((t_faceit.get("playoffs") or "").strip())
+        self.faceit_api_key.setText((t_faceit.get("api_key") or "").strip())
 
         for mr in self.map_rows:
             mr.reset()
@@ -3679,28 +3708,36 @@ class TournamentApp(QMainWindow):
                 if name:
                     ix = mr.map_combo.findText(name)
                     mr.map_combo.setCurrentIndex(ix if ix >= 0 else 0)
+                action = (item.get("draft_action") or "").strip()
+                by = (item.get("draft_by") or "").strip().lower()
+                if by == "t1":
+                    by = "t1"
+                elif by == "t2":
+                    by = "t2"
+                elif by == "team 1":
+                    by = "t1"
+                elif by == "team 2":
+                    by = "t2"
+                else:
+                    by = ""
+
+                # backward compatibility for older saves that only had `pick`
+                if not action:
+                    pick_txt = (item.get("pick") or "").strip()
+                    if pick_txt in {"T1", "T2"}:
+                        action = "Pick"
+                        if not by:
+                            by = "t1" if pick_txt == "T1" else "t2"
+
+                action_ix = mr.draft_action.findText(action if action else "—")
+                mr.draft_action.setCurrentIndex(action_ix if action_ix >= 0 else 0)
+                mr.set_selected_draft_by(by)
+
                 mr.t1score.setValue(int(item.get("t1", 0)))
                 mr.t2score.setValue(int(item.get("t2", 0)))
                 mr.completed.setChecked(bool(item.get("completed", False)))
+                mr._update_score_enabled()
 
-                txt = (item.get("pick") or "")
-                if txt == "T1": mr.pick.setCurrentIndex(1)
-                elif txt == "T2": mr.pick.setCurrentIndex(2)
-                else: mr.pick.setCurrentIndex(0)
-
-
-                t1b = (item.get("t1_ban") or "")
-                t2b = (item.get("t2_ban") or "")
-                if t1b:
-                    ix = mr.t1ban.findText(t1b)
-                    mr.t1ban.setCurrentIndex(ix if ix >= 0 else 0)
-                else:
-                    mr.t1ban.setCurrentIndex(0)
-                if t2b:
-                    ix = mr.t2ban.findText(t2b)
-                    mr.t2ban.setCurrentIndex(ix if ix >= 0 else 0)
-                else:
-                    mr.t2ban.setCurrentIndex(0)
 
         cur = state.get("current_map")
         for i, rb in enumerate(self.current_map_buttons, start=1):
@@ -3761,10 +3798,7 @@ class TournamentApp(QMainWindow):
         )
         if hasattr(self, "bracket_tab"):
             self.bracket_tab.from_settings(b_settings)
-            
-        pool = state.get("map_pool") or []
-        if hasattr(self, "draft_tab"):
-            self.draft_tab.set_pool(pool)
+
 
     def _update(self):
         state = self._collect_state()
@@ -3772,12 +3806,8 @@ class TournamentApp(QMainWindow):
         old = getattr(self, "_last_state_for_diff", None)
         changed = self._diff_for_scoreboard(old, state)
 
-        if "assets.heroes" in changed:
-            self._export_assets_category("Heroes", self.heroes)
         if "assets.maps" in changed:
             self._export_assets_category("Maps", self.maps)
-        if "assets.modes" in changed:
-            self._export_assets_category("Gametypes", self.modes)
 
         g = state.get("general") or {}
         settings = GeneralSettings(**g) if isinstance(g, dict) else GeneralSettings()
@@ -3849,8 +3879,13 @@ class TournamentApp(QMainWindow):
         full = {
             "team1": {}, "team2": {}, "maps": [],
             "current_map": None,
+            "tournament_faceit": {
+                "group_stage": (self.faceit_group_stage.text() or "").strip(),
+                "playoffs": (self.faceit_playoffs.text() or "").strip(),
+                "api_key": (self.faceit_api_key.text() or "").strip(),
+            },
             "general": g,
-            "assets": {"heroes":{}, "maps":{}, "modes":{}},
+            "assets": {"maps":{}},
         }
         old = getattr(self, "_last_state_for_diff", None)
         changed = self._diff_for_scoreboard(old, full)
@@ -3866,9 +3901,14 @@ class TournamentApp(QMainWindow):
         full = {
             "team1": {}, "team2": {}, "maps": [],
             "current_map": None,
+            "tournament_faceit": {
+                "group_stage": (self.faceit_group_stage.text() or "").strip(),
+                "playoffs": (self.faceit_playoffs.text() or "").strip(),
+                "api_key": (self.faceit_api_key.text() or "").strip(),
+            },
             "general": g,
             "waiting": w,
-            "assets": {"heroes":{}, "maps":{}, "modes":{}},
+            "assets": {"maps":{}},
         }
         old = getattr(self, "_last_state_for_diff", None)
         changed = self._diff_for_scoreboard(old, full)
