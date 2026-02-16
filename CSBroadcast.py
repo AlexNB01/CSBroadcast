@@ -2440,23 +2440,42 @@ class TournamentApp(QMainWindow):
         self.faceit_match_page.setPlaceholderText("Faceit match page URL")
         self.faceit_stats_source = QComboBox()
         self.faceit_stats_source.addItems(["Tournament", "Match"])
+
         maps_select = QWidget()
         maps_select_layout = QHBoxLayout(maps_select)
         maps_select_layout.setContentsMargins(0, 0, 0, 0)
         self.faceit_match_map_checks: List[QCheckBox] = []
         for i in range(1, 8):
-            cb = QCheckBox(str(i))
+            cb = QCheckBox(f"Map {i}")
             cb.setChecked(True)
             self.faceit_match_map_checks.append(cb)
             maps_select_layout.addWidget(cb)
         maps_select_layout.addStretch(1)
 
+        self.faceit_maps_search_btn = QPushButton("Search maps from match page")
+
         match_stats_layout.addRow("Match page", self.faceit_match_page)
         match_stats_layout.addRow("Show stats from", self.faceit_stats_source)
-        match_stats_layout.addRow("Match maps", maps_select)
+        match_stats_layout.addRow("", self.faceit_maps_search_btn)
+        self.faceit_match_maps_label = QLabel("Match maps")
+        match_stats_layout.addRow(self.faceit_match_maps_label, maps_select)
         stats_root.addWidget(match_stats_box)
+
+        stats_actions = QHBoxLayout()
+        stats_actions.addStretch(1)
+        self.stats_reset_btn = QPushButton("Reset this tab")
+        self.stats_update_btn = QPushButton("Update (Statistics)")
+        stats_actions.addWidget(self.stats_reset_btn)
+        stats_actions.addWidget(self.stats_update_btn)
+        stats_root.addLayout(stats_actions)
         stats_root.addStretch(1)
         tabs.addTab(self.statistics_tab, "Statistics")
+
+        self.faceit_stats_source.currentTextChanged.connect(lambda *_: self._set_statistics_match_maps_visibility())
+        self.faceit_maps_search_btn.clicked.connect(self._search_faceit_match_maps)
+        self.stats_reset_btn.clicked.connect(self._reset_statistics_tab)
+        self.stats_update_btn.clicked.connect(self._update)
+        self._set_statistics_match_maps_visibility()
 
         # --- GENERAL TAB ---
         self.general_tab = GeneralTab()
@@ -2488,6 +2507,84 @@ class TournamentApp(QMainWindow):
         self._last_state_for_diff = None
         self._start_replay_watcher()
         self._update()
+
+    def _set_statistics_match_maps_visibility(self):
+        show = (self.faceit_stats_source.currentText() or "").strip().lower() == "match"
+        self.faceit_match_maps_label.setVisible(show)
+        for cb in self.faceit_match_map_checks:
+            cb.setVisible(show)
+
+    def _reset_statistics_tab(self):
+        self.faceit_group_stage.clear()
+        self.faceit_playoffs.clear()
+        self.faceit_api_key.clear()
+        self.faceit_match_page.clear()
+        self.faceit_stats_source.setCurrentText("Tournament")
+        for i, cb in enumerate(self.faceit_match_map_checks, start=1):
+            cb.setText(f"Map {i}")
+            cb.setChecked(True)
+        self._set_statistics_match_maps_visibility()
+
+    def _extract_faceit_match_id(self, match_url: str) -> str:
+        m = re.search(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})", match_url or "")
+        return m.group(1) if m else ""
+
+    def _search_faceit_match_maps(self):
+        url = (self.faceit_match_page.text() or "").strip()
+        if not url:
+            QMessageBox.warning(self, "Statistics", "Add Faceit match page URL first.")
+            return
+
+        match_id = self._extract_faceit_match_id(url)
+        api_key = (self.faceit_api_key.text() or "").strip()
+        names: List[str] = []
+
+        if match_id and api_key:
+            try:
+                import urllib.request, json
+                req = urllib.request.Request(
+                    f"https://open.faceit.com/data/v4/matches/{match_id}",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                )
+                with urllib.request.urlopen(req, timeout=4.0) as resp:
+                    data = json.loads(resp.read().decode("utf-8", errors="ignore"))
+                rounds = data.get("rounds") or []
+                names = [str((r.get("round_stats") or {}).get("Map") or "").strip() for r in rounds]
+                names = [n for n in names if n]
+            except Exception:
+                names = []
+
+        if not names:
+            try:
+                import urllib.request
+                with urllib.request.urlopen(url, timeout=4.0) as resp:
+                    html = resp.read().decode("utf-8", errors="ignore")
+                candidates = re.findall(r'"Map"\s*:\s*"([^"]+)"', html)
+                if not candidates:
+                    candidates = re.findall(r'"map"\s*:\s*"([^"]+)"', html)
+                cleaned = []
+                for c in candidates:
+                    c = (c or "").strip()
+                    if c and c not in cleaned:
+                        cleaned.append(c)
+                names = cleaned
+            except Exception:
+                names = []
+
+        if not names:
+            QMessageBox.warning(self, "Statistics", "Could not find map names from the Faceit match page/API.")
+            return
+
+        for i, cb in enumerate(self.faceit_match_map_checks):
+            if i < len(names):
+                cb.setText(names[i])
+                cb.setChecked(True)
+            else:
+                cb.setText(f"Map {i+1}")
+                cb.setChecked(False)
+
+        self.faceit_stats_source.setCurrentText("Match")
+        self._set_statistics_match_maps_visibility()
 
     # ---------------------
     # Menubar and handlers
@@ -3553,7 +3650,7 @@ class TournamentApp(QMainWindow):
         self._write_txt(os.path.join(match_dir, "FaceitApiKey.txt"), (t_faceit.get("api_key") or "").strip())
         self._write_txt(os.path.join(match_dir, "FaceitMatchPage.txt"), (stats_cfg.get("match_page") or "").strip())
         self._write_txt(os.path.join(match_dir, "FaceitStatsSource.txt"), (stats_cfg.get("source") or "tournament").strip())
-        maps_txt = ",".join(str(int(m)) for m in (stats_cfg.get("match_maps") or []) if str(m).isdigit())
+        maps_txt = ",".join(str(m).strip() for m in (stats_cfg.get("match_maps") or []) if str(m).strip())
         self._write_txt(os.path.join(match_dir, "FaceitMatchMaps.txt"), maps_txt)
 
         cur = state.get("current_map")
@@ -3604,13 +3701,7 @@ class TournamentApp(QMainWindow):
     def _reset_all(self):
         self.team1_panel.reset()
         self.team2_panel.reset()
-        self.faceit_group_stage.clear()
-        self.faceit_playoffs.clear()
-        self.faceit_api_key.clear()
-        self.faceit_match_page.clear()
-        self.faceit_stats_source.setCurrentText("Tournament")
-        for cb in self.faceit_match_map_checks:
-            cb.setChecked(True)
+        self._reset_statistics_tab()
         self.team1_panel.color_hex = "#55aaff"; self.team1_panel._apply_color_style()
         self.team2_panel.color_hex = "#ff557f"; self.team2_panel._apply_color_style()
         for i, rb in enumerate(self.current_map_buttons, start=1):
@@ -3695,7 +3786,7 @@ class TournamentApp(QMainWindow):
                            else "")
             })
 
-        selected_maps = [i for i, cb in enumerate(self.faceit_match_map_checks, start=1) if cb.isChecked()]
+        selected_maps = [(cb.text() or "").strip() for cb in self.faceit_match_map_checks if cb.isChecked() and (cb.text() or "").strip()]
         source_text = (self.faceit_stats_source.currentText() or "Tournament").strip().lower()
         source_key = "match" if source_text == "match" else "tournament"
 
@@ -3753,11 +3844,15 @@ class TournamentApp(QMainWindow):
         self.faceit_match_page.setText((stats_cfg.get("match_page") or "").strip())
         source = (stats_cfg.get("source") or "tournament").strip().lower()
         self.faceit_stats_source.setCurrentText("Match" if source == "match" else "Tournament")
-        selected_maps = {int(m) for m in (stats_cfg.get("match_maps") or []) if str(m).isdigit()}
-        if not selected_maps:
-            selected_maps = set(range(1, 8))
+        selected_maps_raw = stats_cfg.get("match_maps") or []
+        selected_map_names = {str(m).strip() for m in selected_maps_raw if str(m).strip() and not str(m).strip().isdigit()}
+        selected_map_indexes = {int(m) for m in selected_maps_raw if str(m).isdigit()}
+        if not selected_map_names and not selected_map_indexes:
+            selected_map_indexes = set(range(1, 8))
         for i, cb in enumerate(self.faceit_match_map_checks, start=1):
-            cb.setChecked(i in selected_maps)
+            txt = (cb.text() or "").strip()
+            cb.setChecked((txt in selected_map_names) or (i in selected_map_indexes))
+        self._set_statistics_match_maps_visibility()
 
         for mr in self.map_rows:
             mr.reset()
@@ -3949,7 +4044,7 @@ class TournamentApp(QMainWindow):
             "statistics": {
                 "match_page": (self.faceit_match_page.text() or "").strip(),
                 "source": "match" if (self.faceit_stats_source.currentText() or "").strip().lower() == "match" else "tournament",
-                "match_maps": [i for i, cb in enumerate(self.faceit_match_map_checks, start=1) if cb.isChecked()],
+                "match_maps": [(cb.text() or "").strip() for cb in self.faceit_match_map_checks if cb.isChecked() and (cb.text() or "").strip()],
             },
             "general": g,
             "assets": {"maps":{}},
@@ -3976,7 +4071,7 @@ class TournamentApp(QMainWindow):
             "statistics": {
                 "match_page": (self.faceit_match_page.text() or "").strip(),
                 "source": "match" if (self.faceit_stats_source.currentText() or "").strip().lower() == "match" else "tournament",
-                "match_maps": [i for i, cb in enumerate(self.faceit_match_map_checks, start=1) if cb.isChecked()],
+                "match_maps": [(cb.text() or "").strip() for cb in self.faceit_match_map_checks if cb.isChecked() and (cb.text() or "").strip()],
             },
             "general": g,
             "waiting": w,
