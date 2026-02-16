@@ -17,7 +17,7 @@ def start_server(base, py):
 
 def start_gui(base, py):
     try:
-        p = subprocess.Popen([py, "-u", "SOWBroadcast.py"], cwd=base)
+        p = subprocess.Popen([py, "-u", "CSBroadcast.py"], cwd=base)
         print("[LAUNCH] GUI started. Close it to return to this menu.")
         return p
     except Exception as e:
