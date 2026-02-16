@@ -23,9 +23,9 @@
     .valbox{position:relative;min-height:1.4em;display:block}
     .valbox .valtext{display:inline-block;position:relative;left:50%;transform:translateX(-50%)}
     .valbox.r-good .valtext::after,.valbox.r-okay .valtext::after,.valbox.r-bad .valtext::after{content:"";position:absolute;top:50%;left:100%;transform:translate(8px,-50%);width:var(--ico);height:var(--ico);background-size:contain;background-repeat:no-repeat}
-    .valbox.r-good .valtext::after{background-image:url("images/good.png")}
-    .valbox.r-okay .valtext::after{background-image:url("images/okay.png")}
-    .valbox.r-bad .valtext::after{background-image:url("images/bad.png")}
+    .valbox.r-good .valtext::after{display:none}
+    .valbox.r-okay .valtext::after{display:none}
+    .valbox.r-bad .valtext::after{display:none}
     .kv{display:grid;grid-template-columns:auto auto;gap:6px 36px;justify-content:center;align-items:center}
     .status{margin-top:8px;opacity:.9;font-size:22px;font-weight:700;text-transform:uppercase}
   </style>
@@ -92,6 +92,15 @@
     }
 
     function extractPlayers(payload){
+      const s = payload?.statistics || {};
+
+      if (Array.isArray(s?.players)) return s.players.map(normalizePlayer);
+      if (s?.team1?.players || s?.team2?.players) {
+        const t1 = Array.isArray(s?.team1?.players) ? s.team1.players : [];
+        const t2 = Array.isArray(s?.team2?.players) ? s.team2.players : [];
+        return [...t1, ...t2].map(normalizePlayer);
+      }
+
       if (Array.isArray(payload?.players)) return payload.players.map(normalizePlayer);
       if (payload?.team1?.players || payload?.team2?.players) {
         const t1 = Array.isArray(payload?.team1?.players) ? payload.team1.players : [];

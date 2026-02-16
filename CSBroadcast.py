@@ -3769,8 +3769,16 @@ class TournamentApp(QMainWindow):
         with open(os.path.join(match_dir, "match.json"), "w", encoding="utf-8") as f:
             json.dump({k: v for k, v in state.items() if k != "assets"}, f, ensure_ascii=False, indent=2)
 
-        with open(os.path.join(match_dir, "statistics.json"), "w", encoding="utf-8") as f:
-            json.dump(state.get("statistics", {}) or {}, f, ensure_ascii=False, indent=2)
+        match_stats_path = os.path.join(match_dir, "statistics.json")
+        existing_match_stats = {}
+        try:
+            if os.path.isfile(match_stats_path):
+                with open(match_stats_path, "r", encoding="utf-8") as f:
+                    existing_match_stats = json.load(f)
+        except Exception:
+            existing_match_stats = {}
+        with open(match_stats_path, "w", encoding="utf-8") as f:
+            json.dump(self._compose_statistics_payload(state, existing_match_stats), f, ensure_ascii=False, indent=2)
 
         t1_players = (state.get("team1") or {}).get("players") or []
         for i in range(8):
@@ -4058,6 +4066,19 @@ class TournamentApp(QMainWindow):
             self.bracket_tab.from_settings(b_settings)
 
 
+    def _compose_statistics_payload(self, state: dict, existing: Optional[dict] = None) -> dict:
+        existing = existing if isinstance(existing, dict) else {}
+        stats_ui = (state.get("statistics") or {}) if isinstance(state, dict) else {}
+        merged = dict(existing)
+        merged.update({
+            "title": (stats_ui.get("title") or "Statistics"),
+            "subtitle": (stats_ui.get("subtitle") or ""),
+            "match_page": (stats_ui.get("match_page") or ""),
+            "source": (stats_ui.get("source") or "tournament"),
+            "match_maps": list(stats_ui.get("match_maps") or []),
+        })
+        return merged
+
     def _update(self):
         state = self._collect_state()
 
@@ -4128,8 +4149,15 @@ class TournamentApp(QMainWindow):
             json.dump(state.get("assets", {}), f, ensure_ascii=False, indent=2)
 
         statistics_path = os.path.join(base_root, "statistics.json")
+        existing_stats = {}
+        try:
+            if os.path.isfile(statistics_path):
+                with open(statistics_path, "r", encoding="utf-8") as f:
+                    existing_stats = json.load(f)
+        except Exception:
+            existing_stats = {}
         with open(statistics_path, "w", encoding="utf-8") as f:
-            json.dump(state.get("statistics", {}) or {}, f, ensure_ascii=False, indent=2)
+            json.dump(self._compose_statistics_payload(state, existing_stats), f, ensure_ascii=False, indent=2)
 
         self._autosave(state)
         self._last_state_for_diff = state
