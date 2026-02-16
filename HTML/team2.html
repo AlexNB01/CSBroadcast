@@ -23,6 +23,8 @@
     body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--text)}
 
     .wrap{width:var(--wrap-w); margin:0 auto; padding:var(--pad-y) var(--pad-x);}
+    .title{font-size:64px;font-weight:900;line-height:1.05;margin:0 0 6px;letter-spacing:.02em}
+    .subtitle{font-size:30px;font-weight:600;opacity:.9;margin:0 0 20px;min-height:1.2em}
     .grid{display:grid;grid-template-columns:repeat(5,1fr);gap:var(--gap)}
     .card{background:var(--card);border-radius:var(--card-r);padding:var(--card-p);text-align:center;backdrop-filter:blur(6px)}
     .avatar{width:var(--avatar);height:var(--avatar);border-radius:50%;object-fit:cover;background:#fff;margin:0 auto 12px}
@@ -50,6 +52,8 @@
 </head>
 <body>
   <div class="wrap">
+    <h1 id="title" class="title">Statistics</h1>
+    <h2 id="subtitle" class="subtitle"></h2>
     <div id="grid" class="grid"></div>
     <div id="status" class="status"></div>
   </div>
@@ -68,6 +72,8 @@
     const HS_GOOD  = Number(qs.get('hs_good'))  || 45;
     const HS_OK    = Number(qs.get('hs_ok'))    || 35;
 
+    const titleEl = document.getElementById('title');
+    const subtitleEl = document.getElementById('subtitle');
     const grid = document.getElementById('grid');
     const statusEl = document.getElementById('status');
 
@@ -165,6 +171,13 @@
         const js = await r.json();
         const allPlayers = extractPlayers(js);
         const players = allPlayers.slice(TEAM_OFFSET, TEAM_OFFSET + TEAM_SIZE);
+
+        const statsCfg = js.statistics || {};
+        const title = (statsCfg.title || 'Statistics').toString().trim() || 'Statistics';
+        const subtitle = (statsCfg.subtitle || '').toString();
+        titleEl.textContent = title;
+        subtitleEl.textContent = subtitle;
+        subtitleEl.style.display = subtitle.trim() ? 'block' : 'none';
         grid.innerHTML = '';
         if(players.length === 0){
           statusEl.textContent = 'No player stats yet. Load tournament data in tool.';
