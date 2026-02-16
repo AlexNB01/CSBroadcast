@@ -2380,19 +2380,6 @@ class TournamentApp(QMainWindow):
         splitter.setSizes([700, 700])
         match_root.addWidget(splitter, 6)
 
-        tournament_faceit_box = QGroupBox("Tournament Faceit Links")
-        tournament_faceit_layout = QFormLayout(tournament_faceit_box)
-        self.faceit_group_stage = QLineEdit()
-        self.faceit_group_stage.setPlaceholderText("Group stage Faceit URL")
-        self.faceit_playoffs = QLineEdit()
-        self.faceit_playoffs.setPlaceholderText("Playoffs Faceit URL")
-        self.faceit_api_key = QLineEdit()
-        self.faceit_api_key.setPlaceholderText("FACEIT API key")
-        tournament_faceit_layout.addRow("Group stage", self.faceit_group_stage)
-        tournament_faceit_layout.addRow("Playoffs", self.faceit_playoffs)
-        tournament_faceit_layout.addRow("FACEIT API key", self.faceit_api_key)
-        match_root.addWidget(tournament_faceit_box)
-
         maps_box = QGroupBox("Maps")
         maps_layout = QVBoxLayout(maps_box)
 
@@ -2429,6 +2416,47 @@ class TournamentApp(QMainWindow):
         match_root.addLayout(bottom)
 
         tabs.addTab(match_tab, "Match")
+
+        # --- STATISTICS TAB ---
+        self.statistics_tab = QWidget()
+        stats_root = QVBoxLayout(self.statistics_tab)
+
+        tournament_faceit_box = QGroupBox("Tournament Faceit Links")
+        tournament_faceit_layout = QFormLayout(tournament_faceit_box)
+        self.faceit_group_stage = QLineEdit()
+        self.faceit_group_stage.setPlaceholderText("Group stage Faceit URL")
+        self.faceit_playoffs = QLineEdit()
+        self.faceit_playoffs.setPlaceholderText("Playoffs Faceit URL")
+        self.faceit_api_key = QLineEdit()
+        self.faceit_api_key.setPlaceholderText("FACEIT API key")
+        tournament_faceit_layout.addRow("Group stage", self.faceit_group_stage)
+        tournament_faceit_layout.addRow("Playoffs", self.faceit_playoffs)
+        tournament_faceit_layout.addRow("FACEIT API key", self.faceit_api_key)
+        stats_root.addWidget(tournament_faceit_box)
+
+        match_stats_box = QGroupBox("Match Statistics")
+        match_stats_layout = QFormLayout(match_stats_box)
+        self.faceit_match_page = QLineEdit()
+        self.faceit_match_page.setPlaceholderText("Faceit match page URL")
+        self.faceit_stats_source = QComboBox()
+        self.faceit_stats_source.addItems(["Tournament", "Match"])
+        maps_select = QWidget()
+        maps_select_layout = QHBoxLayout(maps_select)
+        maps_select_layout.setContentsMargins(0, 0, 0, 0)
+        self.faceit_match_map_checks: List[QCheckBox] = []
+        for i in range(1, 8):
+            cb = QCheckBox(str(i))
+            cb.setChecked(True)
+            self.faceit_match_map_checks.append(cb)
+            maps_select_layout.addWidget(cb)
+        maps_select_layout.addStretch(1)
+
+        match_stats_layout.addRow("Match page", self.faceit_match_page)
+        match_stats_layout.addRow("Show stats from", self.faceit_stats_source)
+        match_stats_layout.addRow("Match maps", maps_select)
+        stats_root.addWidget(match_stats_box)
+        stats_root.addStretch(1)
+        tabs.addTab(self.statistics_tab, "Statistics")
 
         # --- GENERAL TAB ---
         self.general_tab = GeneralTab()
@@ -3173,7 +3201,7 @@ class TournamentApp(QMainWindow):
                 "general.colors",
                 "t1.name","t1.score","t1.color","t1.logo","t1.abbr","t1.players",
                 "t2.name","t2.score","t2.color","t2.logo","t2.abbr","t2.players",
-                "faceit.links",
+                "faceit.links", "faceit.stats",
                 "general.caster1","general.caster2","general.host",
                 "waiting.texts","waiting.timer","waiting.videos","waiting.socials",
                 "maps", "standings", "bracket"
@@ -3248,6 +3276,12 @@ class TournamentApp(QMainWindow):
            (ofl.get("playoffs") or "").strip() != (nfl.get("playoffs") or "").strip() or \
            (ofl.get("api_key") or "").strip() != (nfl.get("api_key") or "").strip():
             keys.append("faceit.links")
+
+        osf, nsf = old.get("statistics", {}) or {}, new.get("statistics", {}) or {}
+        if (osf.get("match_page") or "").strip() != (nsf.get("match_page") or "").strip() or \
+           (osf.get("source") or "tournament").strip() != (nsf.get("source") or "tournament").strip() or \
+           [str(x) for x in (osf.get("match_maps") or [])] != [str(x) for x in (nsf.get("match_maps") or [])]:
+            keys.append("faceit.stats")
         if _players_changed(o1, n1): keys.append("t1.players")
         if _players_changed(o2, n2): keys.append("t2.players")
 
@@ -3513,9 +3547,14 @@ class TournamentApp(QMainWindow):
         write_team_flat("T1", t1)
         write_team_flat("T2", t2)
         t_faceit = state.get("tournament_faceit", {}) or {}
+        stats_cfg = state.get("statistics", {}) or {}
         self._write_txt(os.path.join(match_dir, "FaceitGroupStage.txt"), (t_faceit.get("group_stage") or "").strip())
         self._write_txt(os.path.join(match_dir, "FaceitPlayoffs.txt"), (t_faceit.get("playoffs") or "").strip())
         self._write_txt(os.path.join(match_dir, "FaceitApiKey.txt"), (t_faceit.get("api_key") or "").strip())
+        self._write_txt(os.path.join(match_dir, "FaceitMatchPage.txt"), (stats_cfg.get("match_page") or "").strip())
+        self._write_txt(os.path.join(match_dir, "FaceitStatsSource.txt"), (stats_cfg.get("source") or "tournament").strip())
+        maps_txt = ",".join(str(int(m)) for m in (stats_cfg.get("match_maps") or []) if str(m).isdigit())
+        self._write_txt(os.path.join(match_dir, "FaceitMatchMaps.txt"), maps_txt)
 
         cur = state.get("current_map")
         self._write_txt(os.path.join(match_dir, "CurrentMap.txt"), "" if cur is None else str(cur))
@@ -3568,6 +3607,10 @@ class TournamentApp(QMainWindow):
         self.faceit_group_stage.clear()
         self.faceit_playoffs.clear()
         self.faceit_api_key.clear()
+        self.faceit_match_page.clear()
+        self.faceit_stats_source.setCurrentText("Tournament")
+        for cb in self.faceit_match_map_checks:
+            cb.setChecked(True)
         self.team1_panel.color_hex = "#55aaff"; self.team1_panel._apply_color_style()
         self.team2_panel.color_hex = "#ff557f"; self.team2_panel._apply_color_style()
         for i, rb in enumerate(self.current_map_buttons, start=1):
@@ -3652,6 +3695,10 @@ class TournamentApp(QMainWindow):
                            else "")
             })
 
+        selected_maps = [i for i, cb in enumerate(self.faceit_match_map_checks, start=1) if cb.isChecked()]
+        source_text = (self.faceit_stats_source.currentText() or "Tournament").strip().lower()
+        source_key = "match" if source_text == "match" else "tournament"
+
         state = {
             "team1": asdict(t1),
             "team2": asdict(t2),
@@ -3661,6 +3708,11 @@ class TournamentApp(QMainWindow):
                 "group_stage": self.faceit_group_stage.text().strip(),
                 "playoffs": self.faceit_playoffs.text().strip(),
                 "api_key": self.faceit_api_key.text().strip(),
+            },
+            "statistics": {
+                "match_page": self.faceit_match_page.text().strip(),
+                "source": source_key,
+                "match_maps": selected_maps,
             },
             "assets": {
                 "maps": {k: asdict(v) for k, v in self.maps.items()},
@@ -3696,6 +3748,16 @@ class TournamentApp(QMainWindow):
         self.faceit_group_stage.setText((t_faceit.get("group_stage") or "").strip())
         self.faceit_playoffs.setText((t_faceit.get("playoffs") or "").strip())
         self.faceit_api_key.setText((t_faceit.get("api_key") or "").strip())
+
+        stats_cfg = state.get("statistics", {}) or {}
+        self.faceit_match_page.setText((stats_cfg.get("match_page") or "").strip())
+        source = (stats_cfg.get("source") or "tournament").strip().lower()
+        self.faceit_stats_source.setCurrentText("Match" if source == "match" else "Tournament")
+        selected_maps = {int(m) for m in (stats_cfg.get("match_maps") or []) if str(m).isdigit()}
+        if not selected_maps:
+            selected_maps = set(range(1, 8))
+        for i, cb in enumerate(self.faceit_match_map_checks, start=1):
+            cb.setChecked(i in selected_maps)
 
         for mr in self.map_rows:
             mr.reset()
@@ -3884,6 +3946,11 @@ class TournamentApp(QMainWindow):
                 "playoffs": (self.faceit_playoffs.text() or "").strip(),
                 "api_key": (self.faceit_api_key.text() or "").strip(),
             },
+            "statistics": {
+                "match_page": (self.faceit_match_page.text() or "").strip(),
+                "source": "match" if (self.faceit_stats_source.currentText() or "").strip().lower() == "match" else "tournament",
+                "match_maps": [i for i, cb in enumerate(self.faceit_match_map_checks, start=1) if cb.isChecked()],
+            },
             "general": g,
             "assets": {"maps":{}},
         }
@@ -3905,6 +3972,11 @@ class TournamentApp(QMainWindow):
                 "group_stage": (self.faceit_group_stage.text() or "").strip(),
                 "playoffs": (self.faceit_playoffs.text() or "").strip(),
                 "api_key": (self.faceit_api_key.text() or "").strip(),
+            },
+            "statistics": {
+                "match_page": (self.faceit_match_page.text() or "").strip(),
+                "source": "match" if (self.faceit_stats_source.currentText() or "").strip().lower() == "match" else "tournament",
+                "match_maps": [i for i, cb in enumerate(self.faceit_match_map_checks, start=1) if cb.isChecked()],
             },
             "general": g,
             "waiting": w,
