@@ -3650,7 +3650,6 @@ class TournamentApp(QMainWindow):
 
         osf, nsf = old.get("statistics", {}) or {}, new.get("statistics", {}) or {}
         if (osf.get("title") or "Statistics").strip() != (nsf.get("title") or "Statistics").strip() or \
-           (osf.get("subtitle") or "").strip() != (nsf.get("subtitle") or "").strip() or \
            (osf.get("match_page") or "").strip() != (nsf.get("match_page") or "").strip() or \
            (osf.get("source") or "tournament").strip() != (nsf.get("source") or "tournament").strip() or \
            [str(x) for x in (osf.get("match_maps") or [])] != [str(x) for x in (nsf.get("match_maps") or [])]:
@@ -3927,7 +3926,6 @@ class TournamentApp(QMainWindow):
         self._write_txt(os.path.join(match_dir, "FaceitMatchPage.txt"), (stats_cfg.get("match_page") or "").strip())
         self._write_txt(os.path.join(match_dir, "FaceitStatsSource.txt"), (stats_cfg.get("source") or "tournament").strip())
         self._write_txt(os.path.join(match_dir, "FaceitStatsTitle.txt"), (stats_cfg.get("title") or "Statistics").strip() or "Statistics")
-        self._write_txt(os.path.join(match_dir, "FaceitStatsSubtitle.txt"), (stats_cfg.get("subtitle") or "").strip())
         maps_txt = ",".join(str(m).strip() for m in (stats_cfg.get("match_maps") or []) if str(m).strip())
         self._write_txt(os.path.join(match_dir, "FaceitMatchMaps.txt"), maps_txt)
 
@@ -4091,7 +4089,6 @@ class TournamentApp(QMainWindow):
             },
             "statistics": {
                 "title": (self.faceit_stats_title.text() or "").strip() or "Statistics",
-                "subtitle": (self.faceit_stats_subtitle.text() or "").strip(),
                 "match_page": self.faceit_match_page.text().strip(),
                 "source": source_key,
                 "match_maps": selected_maps,
@@ -4133,7 +4130,6 @@ class TournamentApp(QMainWindow):
 
         stats_cfg = state.get("statistics", {}) or {}
         self.faceit_stats_title.setText((stats_cfg.get("title") or "Statistics").strip() or "Statistics")
-        self.faceit_stats_subtitle.setText((stats_cfg.get("subtitle") or "").strip())
         self.faceit_match_page.setText((stats_cfg.get("match_page") or "").strip())
         source = (stats_cfg.get("source") or "tournament").strip().lower()
 
@@ -4263,7 +4259,6 @@ class TournamentApp(QMainWindow):
         merged = dict(existing)
         merged.update({
             "title": (stats_ui.get("title") or "Statistics"),
-            "subtitle": (stats_ui.get("subtitle") or ""),
             "match_page": (stats_ui.get("match_page") or ""),
             "source": (stats_ui.get("source") or "tournament"),
             "match_maps": list(stats_ui.get("match_maps") or []),
@@ -4380,7 +4375,6 @@ class TournamentApp(QMainWindow):
             },
             "statistics": {
                 "title": (self.faceit_stats_title.text() or "").strip() or "Statistics",
-                "subtitle": (self.faceit_stats_subtitle.text() or "").strip(),
                 "match_page": (self.faceit_match_page.text() or "").strip(),
                 "source": "match" if (self.faceit_stats_source.currentText() or "").strip().lower() == "match" else "tournament",
                 "match_maps": [(cb.text() or "").strip() for cb in self.faceit_match_map_checks if cb.isChecked() and (cb.text() or "").strip()],
@@ -4409,7 +4403,6 @@ class TournamentApp(QMainWindow):
             },
             "statistics": {
                 "title": (self.faceit_stats_title.text() or "").strip() or "Statistics",
-                "subtitle": (self.faceit_stats_subtitle.text() or "").strip(),
                 "match_page": (self.faceit_match_page.text() or "").strip(),
                 "source": "match" if (self.faceit_stats_source.currentText() or "").strip().lower() == "match" else "tournament",
                 "match_maps": [(cb.text() or "").strip() for cb in self.faceit_match_map_checks if cb.isChecked() and (cb.text() or "").strip()],
