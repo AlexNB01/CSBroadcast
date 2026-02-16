@@ -77,6 +77,7 @@ class Team:
     logo_path: Optional[str] = None
     score: int = 0
     color_hex: str = "#FFFFFF"
+    faceit_pages: str = ""
     players: List[Player] = None
     banned_hero: str = ""
 
@@ -620,7 +621,10 @@ class TeamPanel(QGroupBox):
         left.addWidget(QLabel("Name"))
         left.addWidget(self.team_name)
         left.addWidget(QLabel("Abbreviation"))          
-        left.addWidget(self.team_abbr)                   
+        left.addWidget(self.team_abbr)
+        left.addWidget(QLabel("Faceit page(s)"))
+        self.team_faceit_pages = QLineEdit(); self.team_faceit_pages.setPlaceholderText("https://www.faceit.com/...")
+        left.addWidget(self.team_faceit_pages)
 
         score_row = QHBoxLayout(); score_row.addWidget(QLabel("Score")); score_row.addWidget(self.score)
         color_row = QHBoxLayout(); color_row.addWidget(QLabel("Team Color")); color_row.addWidget(self.color_btn)
@@ -680,6 +684,7 @@ class TeamPanel(QGroupBox):
         t.logo_path = self.logo_path
         t.score = self.score.value()
         t.color_hex = self.color_hex
+        t.faceit_pages = self.team_faceit_pages.text().strip()
 
         t.players = []
         for pr in self.player_rows:
@@ -693,6 +698,7 @@ class TeamPanel(QGroupBox):
     def from_team(self, t: Team):
         self.team_name.setText(t.name)
         self.team_abbr.setText(getattr(t, "abbr", "") or "")
+        self.team_faceit_pages.setText(getattr(t, "faceit_pages", "") or "")
         self.logo_path = t.logo_path
         if t.logo_path:
             pix = QPixmap(t.logo_path)
@@ -713,6 +719,7 @@ class TeamPanel(QGroupBox):
     def reset(self):
         self.team_name.clear()
         self.team_abbr.clear()
+        self.team_faceit_pages.clear()
         self.score.setValue(0)
         self.logo_path = None
         self.logo_preview.clear()
@@ -2981,6 +2988,7 @@ class TournamentApp(QMainWindow):
             "version": 1,
             "name": t.name,
             "abbr": t.abbr,
+            "faceit_pages": getattr(t, "faceit_pages", "") or "",
             "logo_png": logo_name if t.logo_path else None,
             "players": [
                 {
@@ -3035,6 +3043,7 @@ class TournamentApp(QMainWindow):
             abbr=data.get("abbr",""),
             logo_path=None,
             score=keep_score,
+            faceit_pages=data.get("faceit_pages", data.get("faceit_page", "")),
             players=players,
             banned_hero=""
         )
@@ -3214,6 +3223,7 @@ class TournamentApp(QMainWindow):
             if o.get("color_hex") != n.get("color_hex"): keys.append(f"{prefix}.color")
             if o.get("logo_path") != n.get("logo_path"): keys.append(f"{prefix}.logo")
             if o.get("abbr") != n.get("abbr"): keys.append(f"{prefix}.abbr")
+            if (o.get("faceit_pages") or "") != (n.get("faceit_pages") or ""): keys.append(f"{prefix}.faceit")
 
         def _players_changed(o_team: dict, n_team: dict) -> bool:
             ol = o_team.get("players") or []
@@ -3478,6 +3488,7 @@ class TournamentApp(QMainWindow):
             self._write_txt(os.path.join(match_dir, f"{prefix}Score.txt"), str(team.get("score", 0)))
             self._write_txt(os.path.join(match_dir, f"{prefix}Color.txt"), team.get("color_hex", "") or "")
             self._write_txt(os.path.join(match_dir, f"{prefix}Abbr.txt"),  team.get("abbr", "") or "")
+            self._write_txt(os.path.join(match_dir, f"{prefix}TeamFaceit.txt"), team.get("faceit_pages", "") or "")
 
             lines = []
             for i, p in enumerate(team.get("players") or [], start=1):
