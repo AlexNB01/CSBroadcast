@@ -12,7 +12,7 @@
     html,body{margin:0;padding:0;width:1920px;height:1080px;background:rgba(0,0,0,0);overflow:hidden;font-family:'Rajdhani',system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;color:var(--text)}
     *{box-sizing:border-box}
     .wrap{position:relative;width:1920px;height:1080px;margin:0 auto;padding:var(--pad-y) var(--pad-x)}
-    .page-header{position:absolute;left:var(--pad-x);top:var(--pad-y);display:flex;align-items:flex-start;justify-content:flex-start;z-index:2}
+    .page-header{position:absolute;left:var(--pad-x);top:calc(50% - 345px);display:flex;align-items:flex-start;justify-content:flex-start;z-index:2}
     .header-text{background:var(--primary);border-left:10px solid var(--team);border-radius:16px;padding:18px 26px;box-shadow:0 14px 32px rgba(0,0,0,.35);display:flex;flex-direction:column;gap:4px}
     .title{font-size:58px;font-weight:800;line-height:1.0;margin:0;letter-spacing:1px;text-transform:uppercase;color:var(--secondary)}
     .subtitle{font-size:28px;font-weight:500;opacity:.75;margin:0;min-height:1.2em;color:var(--secondary)}
@@ -22,7 +22,7 @@
     .avatar{width:var(--avatar);height:var(--avatar);border-radius:50%;object-fit:cover;background:#fff;margin:0 auto 12px;border:3px solid rgba(255,255,255,.2)}
     .nick{font-size:38px;font-weight:800;margin-bottom:6px;text-transform:uppercase}
     .label{color:var(--secondary);opacity:.82;letter-spacing:.09em;font-size:24px;font-weight:700;text-transform:uppercase;text-shadow:0 1px 2px rgba(0,0,0,.35)}
-    .val{font-weight:700;font-variant-numeric:tabular-nums;font-size:var(--value)}
+    .val{color:var(--secondary);opacity:.92;letter-spacing:.09em;font-size:24px;font-weight:700;font-variant-numeric:tabular-nums;text-shadow:0 1px 2px rgba(0,0,0,.35)}
     .valbox{position:relative;min-height:1.4em;display:block}
     .valbox .valtext{display:inline-block;position:relative;left:50%;transform:translateX(-50%)}
     .valbox.r-good .valtext::after,.valbox.r-okay .valtext::after,.valbox.r-bad .valtext::after{content:"";position:absolute;top:50%;left:100%;transform:translate(8px,-50%);width:var(--ico);height:var(--ico);background-size:contain;background-repeat:no-repeat}
