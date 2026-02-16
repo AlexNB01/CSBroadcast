@@ -2717,6 +2717,8 @@ class TournamentApp(QMainWindow):
                             "adr_count": 0,
                             "hs_num": 0.0,
                             "hs_den": 0.0,
+                            "kast_num": 0.0,
+                            "kast_den": 0.0,
                             "kd_values": [],
                         }
                         ordered_players.append(player_id)
@@ -2731,7 +2733,17 @@ class TournamentApp(QMainWindow):
                     deaths = self._parse_faceit_stat_number(pstats.get("Deaths"))
                     adr = self._parse_faceit_stat_number(pstats.get("ADR"))
                     hs_pct = self._parse_faceit_stat_number(pstats.get("Headshots %"))
+                    kast_pct = self._parse_faceit_stat_number(
+                        pstats.get("KAST")
+                        or pstats.get("KAST %")
+                        or pstats.get("KAST Percentage")
+                    )
                     kd_val = self._parse_faceit_stat_number(pstats.get("K/D Ratio"))
+                    rounds_played = self._parse_faceit_stat_number(
+                        pstats.get("Rounds")
+                        or pstats.get("Rounds Played")
+                        or pstats.get("Rounds played")
+                    )
 
                     if isinstance(kills, (int, float)):
                         acc["kills"] += int(round(float(kills)))
@@ -2747,6 +2759,13 @@ class TournamentApp(QMainWindow):
                         weight = max(1.0, float(kills or 0.0))
                         acc["hs_num"] += float(hs_pct) * weight
                         acc["hs_den"] += weight
+                    if isinstance(kast_pct, (int, float)):
+                        if kast_pct <= 1:
+                            kast_pct *= 100.0
+                        # weighted by rounds when available, otherwise equal-weight
+                        kast_weight = max(1.0, float(rounds_played or 0.0))
+                        acc["kast_num"] += float(kast_pct) * kast_weight
+                        acc["kast_den"] += kast_weight
                     if isinstance(kd_val, (int, float)):
                         acc["kd_values"].append(float(kd_val))
 
@@ -2763,6 +2782,7 @@ class TournamentApp(QMainWindow):
                 kd = sum(acc["kd_values"]) / max(1, len(acc["kd_values"]))
             adr = (acc["adr_sum"] / acc["adr_count"]) if acc["adr_count"] > 0 else None
             hs_pct = (acc["hs_num"] / acc["hs_den"]) if acc["hs_den"] > 0 else None
+            kast_pct = (acc["kast_num"] / acc["kast_den"]) if acc["kast_den"] > 0 else None
 
             row = {
                 "nickname": acc["nickname"] or "-",
@@ -2771,6 +2791,7 @@ class TournamentApp(QMainWindow):
                 "kd": round(float(kd), 2) if isinstance(kd, (int, float)) else None,
                 "adr": round(float(adr), 2) if isinstance(adr, (int, float)) else None,
                 "hs_pct": round(float(hs_pct), 1) if isinstance(hs_pct, (int, float)) else None,
+                "kast_pct": round(float(kast_pct), 1) if isinstance(kast_pct, (int, float)) else None,
                 "team_id": acc.get("team_id") or "",
             }
             players.append(row)
