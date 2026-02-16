@@ -66,6 +66,7 @@ class Asset:
 @dataclass
 class Player:
     name: str = ""
+    faceit_link: str = ""
     hero: str = ""
     role: str = ""
 
@@ -589,8 +590,10 @@ class PlayerRow(QWidget):
         row.setContentsMargins(0, 0, 0, 0)
         self.label = QLabel(f"Player {index}")
         self.name = QLineEdit(); self.name.setPlaceholderText("Name")
+        self.faceit_link = QLineEdit(); self.faceit_link.setPlaceholderText("Faceit link")
         row.addWidget(self.label)
         row.addWidget(self.name, 1)
+        row.addWidget(self.faceit_link, 1)
 
 class TeamPanel(QGroupBox):
     def __init__(self, title: str, default_color: str = "#FFFFFF"):
@@ -680,7 +683,10 @@ class TeamPanel(QGroupBox):
 
         t.players = []
         for pr in self.player_rows:
-            p = Player(name=pr.name.text().strip())
+            p = Player(
+                name=pr.name.text().strip(),
+                faceit_link=pr.faceit_link.text().strip(),
+            )
             t.players.append(p)
         return t
 
@@ -699,6 +705,7 @@ class TeamPanel(QGroupBox):
         self._apply_color_style()
         for pr, pdata in zip(self.player_rows, t.players + [Player()] * (8 - len(t.players))):
             pr.name.setText(pdata.name)
+            pr.faceit_link.setText(getattr(pdata, "faceit_link", "") or "")
 
     def refresh_hero_lists(self):
         return
@@ -711,6 +718,7 @@ class TeamPanel(QGroupBox):
         self.logo_preview.clear()
         for pr in self.player_rows:
             pr.name.clear()
+            pr.faceit_link.clear()
 
 # -----------------------------
 # Map rows
@@ -2975,7 +2983,12 @@ class TournamentApp(QMainWindow):
             "abbr": t.abbr,
             "logo_png": logo_name if t.logo_path else None,
             "players": [
-                {"name": p.name, "hero": p.hero, "role": p.role}
+                {
+                    "name": p.name,
+                    "faceit_link": getattr(p, "faceit_link", "") or "",
+                    "hero": p.hero,
+                    "role": p.role,
+                }
                 for p in (t.players or [])
             ],
         }
@@ -3008,7 +3021,12 @@ class TournamentApp(QMainWindow):
 
         players = []
         for p in data.get("players", []):
-            players.append(Player(name=p.get("name",""), hero=p.get("hero",""), role=p.get("role","")))
+            players.append(Player(
+                name=p.get("name", ""),
+                faceit_link=p.get("faceit_link", p.get("faceit", "")),
+                hero=p.get("hero", ""),
+                role=p.get("role", ""),
+            ))
         while len(players) < 8:
             players.append(Player())
 
@@ -3204,6 +3222,8 @@ class TournamentApp(QMainWindow):
                 return True
             for a, b in zip(ol, nl):
                 if (a.get("name") or "").strip() != (b.get("name") or "").strip():
+                    return True
+                if (a.get("faceit_link") or "").strip() != (b.get("faceit_link") or "").strip():
                     return True
             return False
 
@@ -3462,9 +3482,8 @@ class TournamentApp(QMainWindow):
             lines = []
             for i, p in enumerate(team.get("players") or [], start=1):
                 name = (p.get("name") or "").replace("\t", " ")
-                hero = (p.get("hero") or "").replace("\t", " ")
-                role = (p.get("role") or "").replace("\t", " ")
-                lines.append(f"{i}\t{name}\t{hero}\t{role}")
+                faceit = (p.get("faceit_link") or "").replace("\t", " ")
+                lines.append(f"{i}\t{name}\t{faceit}")
             self._write_txt(os.path.join(match_dir, f"{prefix}Players.txt"), "\n".join(lines) + ("\n" if lines else ""))
 
             logo_src = team.get("logo_path")
@@ -3508,11 +3527,13 @@ class TournamentApp(QMainWindow):
         for i in range(8):
             p = t1_players[i] if i < len(t1_players) else {}
             self._write_txt(os.path.join(match_dir, f"T1P{i+1}Name.txt"), (p.get("name") or "").strip())
+            self._write_txt(os.path.join(match_dir, f"T1P{i+1}Faceit.txt"), (p.get("faceit_link") or "").strip())
 
         t2_players = (state.get("team2") or {}).get("players") or []
         for i in range(8):
             p = t2_players[i] if i < len(t2_players) else {}
             self._write_txt(os.path.join(match_dir, f"T2P{i+1}Name.txt"), (p.get("name") or "").strip())
+            self._write_txt(os.path.join(match_dir, f"T2P{i+1}Faceit.txt"), (p.get("faceit_link") or "").strip())
             
 
     # ---------------------
