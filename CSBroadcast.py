@@ -2525,9 +2525,34 @@ class TournamentApp(QMainWindow):
             cb.setChecked(True)
         self._set_statistics_match_maps_visibility()
 
-    def _extract_faceit_match_id(self, match_url: str) -> str:
-        m = re.search(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})", match_url or "")
-        return m.group(1) if m else ""
+    def _extract_faceit_match_ids(self, match_url: str) -> List[str]:
+        url = (match_url or "").strip()
+        candidates: List[str] = []
+
+        room_match = re.search(r"/room/([^/?#]+)", url, flags=re.IGNORECASE)
+        if room_match:
+            candidates.append(room_match.group(1).strip())
+
+        raw_matches = re.findall(r"(?:\b\d-)?[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", url)
+        candidates.extend([m.strip() for m in raw_matches if m.strip()])
+
+        out: List[str] = []
+        seen = set()
+        for cid in candidates:
+            for variant in [cid, cid.split("-", 1)[1] if "-" in cid and cid[0].isdigit() else cid]:
+                v = (variant or "").strip()
+                if v and v not in seen:
+                    seen.add(v)
+                    out.append(v)
+        return out
+
+    def _normalize_map_name(self, value: str) -> str:
+        text = (value or "").strip()
+        if not text:
+            return ""
+        text = re.sub(r"^[Dd][Ee]_", "", text)
+        text = text.replace("_", " ").strip()
+        return text.title()
 
     def _search_faceit_match_maps(self):
         url = (self.faceit_match_page.text() or "").strip()
@@ -2535,44 +2560,72 @@ class TournamentApp(QMainWindow):
             QMessageBox.warning(self, "Statistics", "Add Faceit match page URL first.")
             return
 
-        match_id = self._extract_faceit_match_id(url)
+        match_ids = self._extract_faceit_match_ids(url)
         api_key = (self.faceit_api_key.text() or "").strip()
         names: List[str] = []
+        api_error = ""
 
-        if match_id and api_key:
-            try:
-                import urllib.request, json
-                req = urllib.request.Request(
-                    f"https://open.faceit.com/data/v4/matches/{match_id}",
-                    headers={"Authorization": f"Bearer {api_key}"},
-                )
-                with urllib.request.urlopen(req, timeout=4.0) as resp:
-                    data = json.loads(resp.read().decode("utf-8", errors="ignore"))
-                rounds = data.get("rounds") or []
-                names = [str((r.get("round_stats") or {}).get("Map") or "").strip() for r in rounds]
-                names = [n for n in names if n]
-            except Exception:
-                names = []
+        if match_ids and api_key:
+            import urllib.request, urllib.error, json
+            for match_id in match_ids:
+                try:
+                    req = urllib.request.Request(
+                        f"https://open.faceit.com/data/v4/matches/{match_id}",
+                        headers={"Authorization": f"Bearer {api_key}"},
+                    )
+                    with urllib.request.urlopen(req, timeout=6.0) as resp:
+                        data = json.loads(resp.read().decode("utf-8", errors="ignore"))
+
+                    rounds = data.get("rounds") or []
+                    names = [self._normalize_map_name(str((r.get("round_stats") or {}).get("Map") or "")) for r in rounds]
+                    names = [n for n in names if n]
+
+                    if not names:
+                        voting_map = ((data.get("voting") or {}).get("map") or {})
+                        picks = voting_map.get("pick") or []
+                        names = [self._normalize_map_name(str(x)) for x in picks]
+                        names = [n for n in names if n]
+
+                    if names:
+                        break
+                except urllib.error.HTTPError as e:
+                    api_error = f"HTTP {e.code}"
+                except Exception as e:
+                    api_error = str(e)
 
         if not names:
             try:
                 import urllib.request
-                with urllib.request.urlopen(url, timeout=4.0) as resp:
+                req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+                with urllib.request.urlopen(req, timeout=6.0) as resp:
                     html = resp.read().decode("utf-8", errors="ignore")
-                candidates = re.findall(r'"Map"\s*:\s*"([^"]+)"', html)
-                if not candidates:
-                    candidates = re.findall(r'"map"\s*:\s*"([^"]+)"', html)
+
+                candidates = []
+                patterns = [
+                    r'"Map"\s*:\s*"([^"]+)"',
+                    r'"map"\s*:\s*"([^"]+)"',
+                    r'"map_name"\s*:\s*"([^"]+)"',
+                    r'"game_map"\s*:\s*"([^"]+)"',
+                ]
+                for pat in patterns:
+                    candidates.extend(re.findall(pat, html))
+
                 cleaned = []
                 for c in candidates:
-                    c = (c or "").strip()
-                    if c and c not in cleaned:
-                        cleaned.append(c)
+                    name = self._normalize_map_name(str(c))
+                    if name and name not in cleaned:
+                        cleaned.append(name)
                 names = cleaned
             except Exception:
                 names = []
 
         if not names:
-            QMessageBox.warning(self, "Statistics", "Could not find map names from the Faceit match page/API.")
+            hint = ""
+            if not api_key:
+                hint = " Add FACEIT API key for reliable lookup."
+            elif api_error:
+                hint = f" API error: {api_error}."
+            QMessageBox.warning(self, "Statistics", "Could not find map names from the Faceit match page/API." + hint)
             return
 
         for i, cb in enumerate(self.faceit_match_map_checks):
