@@ -2688,6 +2688,26 @@ class TournamentApp(QMainWindow):
         rounds = api_data.get("rounds") or []
         selected_norm = {self._normalize_map_name(m) for m in (selected_maps or []) if str(m).strip()}
 
+        def stat_value(stats: dict, *aliases: str):
+            if not isinstance(stats, dict) or not stats:
+                return None
+
+            for key in aliases:
+                if key in stats:
+                    return stats.get(key)
+
+            def _norm(text: str) -> str:
+                return "".join(ch.lower() for ch in str(text) if ch.isalnum())
+
+            alias_norms = {_norm(a) for a in aliases if str(a).strip()}
+            if not alias_norms:
+                return None
+
+            for key, value in stats.items():
+                if _norm(key) in alias_norms:
+                    return value
+            return None
+
         team_map = {}
         ordered_players = []
         by_player_id = {}
@@ -2717,8 +2737,6 @@ class TournamentApp(QMainWindow):
                             "adr_count": 0,
                             "hs_num": 0.0,
                             "hs_den": 0.0,
-                            "kast_num": 0.0,
-                            "kast_den": 0.0,
                             "kd_values": [],
                         }
                         ordered_players.append(player_id)
@@ -2729,22 +2747,22 @@ class TournamentApp(QMainWindow):
                     if team_id:
                         acc["team_id"] = team_id
 
-                    kills = self._parse_faceit_stat_number(pstats.get("Kills"))
-                    deaths = self._parse_faceit_stat_number(pstats.get("Deaths"))
-                    adr = self._parse_faceit_stat_number(pstats.get("ADR"))
-                    hs_pct = self._parse_faceit_stat_number(pstats.get("Headshots %"))
-                    kast_pct = self._parse_faceit_stat_number(
-                        pstats.get("KAST")
-                        or pstats.get("KAST %")
-                        or pstats.get("KAST Percentage")
+                    kills = self._parse_faceit_stat_number(stat_value(pstats, "Kills"))
+                    deaths = self._parse_faceit_stat_number(stat_value(pstats, "Deaths"))
+                    adr = self._parse_faceit_stat_number(stat_value(pstats, "ADR"))
+                    hs_pct = self._parse_faceit_stat_number(
+                        stat_value(
+                            pstats,
+                            "Headshots %",
+                            "Headshots",
+                            "Headshot %",
+                            "HS %",
+                            "HS",
+                        )
                     )
-                    kd_val = self._parse_faceit_stat_number(pstats.get("K/D Ratio"))
-                    rounds_played = self._parse_faceit_stat_number(
-                        pstats.get("Rounds")
-                        or pstats.get("Rounds Played")
-                        or pstats.get("Rounds played")
+                    kd_val = self._parse_faceit_stat_number(
+                        stat_value(pstats, "K/D Ratio", "KD Ratio", "K/D", "KDR")
                     )
-
                     if isinstance(kills, (int, float)):
                         acc["kills"] += int(round(float(kills)))
                     if isinstance(deaths, (int, float)):
@@ -2759,13 +2777,6 @@ class TournamentApp(QMainWindow):
                         weight = max(1.0, float(kills or 0.0))
                         acc["hs_num"] += float(hs_pct) * weight
                         acc["hs_den"] += weight
-                    if isinstance(kast_pct, (int, float)):
-                        if kast_pct <= 1:
-                            kast_pct *= 100.0
-                        # weighted by rounds when available, otherwise equal-weight
-                        kast_weight = max(1.0, float(rounds_played or 0.0))
-                        acc["kast_num"] += float(kast_pct) * kast_weight
-                        acc["kast_den"] += kast_weight
                     if isinstance(kd_val, (int, float)):
                         acc["kd_values"].append(float(kd_val))
 
@@ -2782,8 +2793,6 @@ class TournamentApp(QMainWindow):
                 kd = sum(acc["kd_values"]) / max(1, len(acc["kd_values"]))
             adr = (acc["adr_sum"] / acc["adr_count"]) if acc["adr_count"] > 0 else None
             hs_pct = (acc["hs_num"] / acc["hs_den"]) if acc["hs_den"] > 0 else None
-            kast_pct = (acc["kast_num"] / acc["kast_den"]) if acc["kast_den"] > 0 else None
-
             row = {
                 "nickname": acc["nickname"] or "-",
                 "kills": acc["kills"],
@@ -2791,7 +2800,6 @@ class TournamentApp(QMainWindow):
                 "kd": round(float(kd), 2) if isinstance(kd, (int, float)) else None,
                 "adr": round(float(adr), 2) if isinstance(adr, (int, float)) else None,
                 "hs_pct": round(float(hs_pct), 1) if isinstance(hs_pct, (int, float)) else None,
-                "kast_pct": round(float(kast_pct), 1) if isinstance(kast_pct, (int, float)) else None,
                 "team_id": acc.get("team_id") or "",
             }
             players.append(row)
@@ -3642,7 +3650,6 @@ class TournamentApp(QMainWindow):
 
         osf, nsf = old.get("statistics", {}) or {}, new.get("statistics", {}) or {}
         if (osf.get("title") or "Statistics").strip() != (nsf.get("title") or "Statistics").strip() or \
-           (osf.get("subtitle") or "").strip() != (nsf.get("subtitle") or "").strip() or \
            (osf.get("match_page") or "").strip() != (nsf.get("match_page") or "").strip() or \
            (osf.get("source") or "tournament").strip() != (nsf.get("source") or "tournament").strip() or \
            [str(x) for x in (osf.get("match_maps") or [])] != [str(x) for x in (nsf.get("match_maps") or [])]:
@@ -3919,7 +3926,6 @@ class TournamentApp(QMainWindow):
         self._write_txt(os.path.join(match_dir, "FaceitMatchPage.txt"), (stats_cfg.get("match_page") or "").strip())
         self._write_txt(os.path.join(match_dir, "FaceitStatsSource.txt"), (stats_cfg.get("source") or "tournament").strip())
         self._write_txt(os.path.join(match_dir, "FaceitStatsTitle.txt"), (stats_cfg.get("title") or "Statistics").strip() or "Statistics")
-        self._write_txt(os.path.join(match_dir, "FaceitStatsSubtitle.txt"), (stats_cfg.get("subtitle") or "").strip())
         maps_txt = ",".join(str(m).strip() for m in (stats_cfg.get("match_maps") or []) if str(m).strip())
         self._write_txt(os.path.join(match_dir, "FaceitMatchMaps.txt"), maps_txt)
 
@@ -4083,7 +4089,6 @@ class TournamentApp(QMainWindow):
             },
             "statistics": {
                 "title": (self.faceit_stats_title.text() or "").strip() or "Statistics",
-                "subtitle": (self.faceit_stats_subtitle.text() or "").strip(),
                 "match_page": self.faceit_match_page.text().strip(),
                 "source": source_key,
                 "match_maps": selected_maps,
@@ -4125,7 +4130,6 @@ class TournamentApp(QMainWindow):
 
         stats_cfg = state.get("statistics", {}) or {}
         self.faceit_stats_title.setText((stats_cfg.get("title") or "Statistics").strip() or "Statistics")
-        self.faceit_stats_subtitle.setText((stats_cfg.get("subtitle") or "").strip())
         self.faceit_match_page.setText((stats_cfg.get("match_page") or "").strip())
         source = (stats_cfg.get("source") or "tournament").strip().lower()
 
@@ -4255,7 +4259,6 @@ class TournamentApp(QMainWindow):
         merged = dict(existing)
         merged.update({
             "title": (stats_ui.get("title") or "Statistics"),
-            "subtitle": (stats_ui.get("subtitle") or ""),
             "match_page": (stats_ui.get("match_page") or ""),
             "source": (stats_ui.get("source") or "tournament"),
             "match_maps": list(stats_ui.get("match_maps") or []),
@@ -4372,7 +4375,6 @@ class TournamentApp(QMainWindow):
             },
             "statistics": {
                 "title": (self.faceit_stats_title.text() or "").strip() or "Statistics",
-                "subtitle": (self.faceit_stats_subtitle.text() or "").strip(),
                 "match_page": (self.faceit_match_page.text() or "").strip(),
                 "source": "match" if (self.faceit_stats_source.currentText() or "").strip().lower() == "match" else "tournament",
                 "match_maps": [(cb.text() or "").strip() for cb in self.faceit_match_map_checks if cb.isChecked() and (cb.text() or "").strip()],
@@ -4401,7 +4403,6 @@ class TournamentApp(QMainWindow):
             },
             "statistics": {
                 "title": (self.faceit_stats_title.text() or "").strip() or "Statistics",
-                "subtitle": (self.faceit_stats_subtitle.text() or "").strip(),
                 "match_page": (self.faceit_match_page.text() or "").strip(),
                 "source": "match" if (self.faceit_stats_source.currentText() or "").strip().lower() == "match" else "tournament",
                 "match_maps": [(cb.text() or "").strip() for cb in self.faceit_match_map_checks if cb.isChecked() and (cb.text() or "").strip()],
