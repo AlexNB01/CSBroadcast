@@ -5,49 +5,55 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Roster Overlay — Team 2</title>
   <style>
+    @font-face{font-family:'Rajdhani';src:url("fonts/Rajdhani/Rajdhani-Bold.ttf") format('TrueType');font-weight:700}
+    @font-face{font-family:'Rajdhani';src:url("fonts/Rajdhani/Rajdhani-Regular.ttf") format('TrueType');font-weight:400}
+
     :root{
-      --wrap-w:1920px;
+      --primary:#0f1114;
+      --secondary:#ffffff;
+      --team:#ff557f;
+      --card:rgba(15,17,20,.74);
+      --muted:#ffdbe6;
+      --text:#ffffff;
       --pad-x:48px;
       --pad-y:28px;
       --gap:32px;
-      --card-r:24px;
+      --card-r:20px;
       --card-p:22px;
-      --avatar:168px;
-      --ico:27px;
-      --label:21px;
+      --avatar:156px;
+      --ico:26px;
+      --label:20px;
       --value:30px;
     }
 
-    :root { --bg:#3f0f18; --card:rgba(255,255,255,.06); --muted:#ffd2dd; --text:#fff; }
+    html,body{
+      margin:0;padding:0;width:1920px;height:1080px;background:rgba(0,0,0,0);overflow:hidden;
+      font-family:'Rajdhani',system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;color:var(--text);
+    }
     *{box-sizing:border-box}
-    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--text)}
 
-    .wrap{width:var(--wrap-w); margin:0 auto; padding:var(--pad-y) var(--pad-x);}
-    .title{font-size:64px;font-weight:900;line-height:1.05;margin:0 0 6px;letter-spacing:.02em}
-    .subtitle{font-size:30px;font-weight:600;opacity:.9;margin:0 0 20px;min-height:1.2em}
+    .wrap{width:1920px; margin:0 auto; padding:var(--pad-y) var(--pad-x);}
+    .title{font-size:68px;font-weight:900;line-height:1.05;margin:0 0 6px;letter-spacing:.02em;text-transform:uppercase;color:var(--secondary)}
+    .subtitle{font-size:32px;font-weight:600;opacity:.96;margin:0 0 18px;min-height:1.2em;color:var(--muted)}
     .grid{display:grid;grid-template-columns:repeat(5,1fr);gap:var(--gap)}
-    .card{background:var(--card);border-radius:var(--card-r);padding:var(--card-p);text-align:center;backdrop-filter:blur(6px)}
-    .avatar{width:var(--avatar);height:var(--avatar);border-radius:50%;object-fit:cover;background:#fff;margin:0 auto 12px}
-    .nick{font-size:36px;font-weight:800;margin-bottom:6px}
+    .card{background:var(--card);border-radius:var(--card-r);padding:var(--card-p);text-align:center;border-top:4px solid var(--team);box-shadow:0 8px 20px rgba(0,0,0,.28)}
+    .avatar{width:var(--avatar);height:var(--avatar);border-radius:50%;object-fit:cover;background:#fff;margin:0 auto 12px;border:3px solid rgba(255,255,255,.2)}
+    .nick{font-size:38px;font-weight:800;margin-bottom:6px;text-transform:uppercase}
     .label{color:var(--muted);letter-spacing:.08em;font-size:var(--label)}
     .val{font-weight:700;font-variant-numeric:tabular-nums;font-size:var(--value)}
-
     .valbox{ position:relative; min-height:1.4em; display:block; }
     .valbox .valtext{ display:inline-block; position:relative; left:50%; transform:translateX(-50%); }
-
     .valbox.r-good  .valtext::after,
     .valbox.r-okay  .valtext::after,
     .valbox.r-bad   .valtext::after{
-      content:""; position:absolute; top:50%; left:100%;
-      transform: translate(8px,-50%);
+      content:""; position:absolute; top:50%; left:100%; transform: translate(8px,-50%);
       width:var(--ico); height:var(--ico); background-size:contain; background-repeat:no-repeat;
     }
     .valbox.r-good  .valtext::after{ background-image:url("images/good.png"); }
     .valbox.r-okay  .valtext::after{ background-image:url("images/okay.png"); }
     .valbox.r-bad   .valtext::after{ background-image:url("images/bad.png"); }
-
     .kv{display:grid;grid-template-columns:auto auto;gap:6px 36px;justify-content:center;align-items:center}
-    .status{margin-top:8px;opacity:.7;font-size:13px}
+    .status{margin-top:8px;opacity:.9;font-size:22px;font-weight:700;text-transform:uppercase}
   </style>
 </head>
 <body>
@@ -61,6 +67,7 @@
   <script>
     const TEAM_OFFSET = 5;
     const TEAM_SIZE = 5;
+    const DEFAULT_TEAM_COLOR = '#ff557f';
 
     const API_BASE = (location.origin === 'null' || location.protocol === 'file:') ? 'http://localhost:8787' : '';
 
@@ -109,9 +116,23 @@
 
     const fromStats = (player, keys) => pick(player?.stats || {}, keys);
 
+    const asHex = (v, fallback) => {
+      const s = String(v || '').trim();
+      return /^#?[0-9a-fA-F]{6}$/.test(s) ? (s.startsWith('#') ? s : `#${s}`) : fallback;
+    };
+
+    function applyTheme(payload){
+      const g = payload?.general?.colors || {};
+      const t = payload?.team2 || {};
+      document.documentElement.style.setProperty('--primary', asHex(g.primary, '#0f1114'));
+      document.documentElement.style.setProperty('--secondary', asHex(g.quinary || g.secondary, '#ffffff'));
+      document.documentElement.style.setProperty('--muted', asHex(g.senary || '#ffdbe6', '#ffdbe6'));
+      document.documentElement.style.setProperty('--card', 'color-mix(in srgb, var(--primary) 74%, transparent)');
+      document.documentElement.style.setProperty('--team', asHex(t.color_hex, DEFAULT_TEAM_COLOR));
+    }
+
     function normalizePlayer(player){
       const nickname = pick(player, ['nickname','nick','name','player_name','playerName']) || '-';
-
       const killsRaw = pick(player, ['kills','kill','k']) ?? fromStats(player, ['kills','kill','k']);
       const deathsRaw = pick(player, ['deaths','death','d']) ?? fromStats(player, ['deaths','death','d']);
       const kdRaw = pick(player, ['kd','kdr','kd_ratio','k_d']) ?? fromStats(player, ['kd','kdr','kd ratio','k/d']);
@@ -130,18 +151,15 @@
 
     function extractPlayers(payload){
       if (Array.isArray(payload?.players)) return payload.players.map(normalizePlayer);
-
       if (payload?.team1?.players || payload?.team2?.players) {
         const t1 = Array.isArray(payload?.team1?.players) ? payload.team1.players : [];
         const t2 = Array.isArray(payload?.team2?.players) ? payload.team2.players : [];
         return [...t1, ...t2].map(normalizePlayer);
       }
-
       if (Array.isArray(payload?.teams)) {
         const flattened = payload.teams.flatMap(team => Array.isArray(team?.players) ? team.players : []);
         return flattened.map(normalizePlayer);
       }
-
       return [];
     }
 
@@ -169,8 +187,8 @@
         const r = await fetch(API_BASE + '/render', { cache:'no-store' });
         if(!r.ok) throw new Error(await r.text());
         const js = await r.json();
-        const allPlayers = extractPlayers(js);
-        const players = allPlayers.slice(TEAM_OFFSET, TEAM_OFFSET + TEAM_SIZE);
+
+        applyTheme(js);
 
         const statsCfg = js.statistics || {};
         const title = (statsCfg.title || 'Statistics').toString().trim() || 'Statistics';
@@ -178,6 +196,10 @@
         titleEl.textContent = title;
         subtitleEl.textContent = subtitle;
         subtitleEl.style.display = subtitle.trim() ? 'block' : 'none';
+
+        const allPlayers = extractPlayers(js);
+        const players = allPlayers.slice(TEAM_OFFSET, TEAM_OFFSET + TEAM_SIZE);
+
         grid.innerHTML = '';
         if(players.length === 0){
           statusEl.textContent = 'No player stats yet. Load tournament data in tool.';
@@ -191,7 +213,6 @@
     }
 
     refreshOnce();
-
     try{
       const es = new EventSource(API_BASE + '/events');
       es.addEventListener('update', () => { refreshOnce(); });
