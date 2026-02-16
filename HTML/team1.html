@@ -21,11 +21,11 @@
     .card{background:var(--card);border-radius:var(--card-r);padding:var(--card-p);text-align:center;border-top:4px solid var(--team);box-shadow:0 8px 20px rgba(0,0,0,.28)}
     .avatar{width:var(--avatar);height:var(--avatar);border-radius:50%;object-fit:cover;background:#fff;margin:0 auto 12px;border:3px solid rgba(255,255,255,.2)}
     .nick{font-size:38px;font-weight:800;margin-bottom:6px;text-transform:uppercase}
-    .label{color:var(--secondary);opacity:.82;letter-spacing:.09em;font-size:24px;font-weight:700;text-transform:uppercase;text-shadow:0 1px 2px rgba(0,0,0,.35)}
-    .val{color:var(--secondary);opacity:.92;letter-spacing:.09em;font-size:24px;font-weight:700;font-variant-numeric:tabular-nums;text-shadow:0 1px 2px rgba(0,0,0,.35)}
-    .valbox{position:relative;min-height:1.4em;display:block}
-    .valbox .valtext{display:inline-block;position:relative;left:50%;transform:translateX(-50%)}
-    .valbox.r-good .valtext::after,.valbox.r-okay .valtext::after,.valbox.r-bad .valtext::after{content:"";position:absolute;top:50%;left:100%;transform:translate(8px,-50%);width:var(--ico);height:var(--ico);background-size:contain;background-repeat:no-repeat}
+    .label{color:var(--secondary);opacity:.82;letter-spacing:.09em;font-size:24px;font-weight:700;line-height:1;text-transform:uppercase;text-shadow:0 1px 2px rgba(0,0,0,.35);display:flex;align-items:center;justify-content:flex-start;min-height:1.25em}
+    .val{color:var(--secondary);opacity:.92;letter-spacing:.09em;font-size:24px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums;text-shadow:0 1px 2px rgba(0,0,0,.35)}
+    .valbox{position:relative;min-height:1.25em;display:flex;align-items:center;justify-content:center}
+    .valbox .valtext{display:inline-flex;align-items:center;position:relative}
+    .valbox.r-good .valtext::after,.valbox.r-okay .valtext::after,.valbox.r-bad .valtext::after{content:"";position:absolute;top:50%;left:100%;transform:translate(8px,-50%);width:var(--ico);height:var(--ico);background-size:contain;background-repeat:no-repeat;filter:drop-shadow(0 2px 4px rgba(0,0,0,.55)) drop-shadow(0 0 8px rgba(0,0,0,.45))}
     .valbox.r-good .valtext::after{background-image:url("assets/statistics/good.png")}
     .valbox.r-okay .valtext::after{background-image:url("assets/statistics/okay.png")}
     .valbox.r-bad .valtext::after{background-image:url("assets/statistics/bad.png")}
