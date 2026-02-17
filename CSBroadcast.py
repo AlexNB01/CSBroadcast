@@ -18,7 +18,7 @@ from PyQt5.QtWidgets import (
 # Data models
 # -----------------------------
 DEV_ASSET_DIRS = {
-    "maps":      r"C:\CSBroadcat\Scoreboard\Maps",
+    "maps":      os.path.join("Scoreboard", "Maps"),
 }
 
 def _bundled_scoreboard_dir():
