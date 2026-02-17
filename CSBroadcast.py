@@ -2630,16 +2630,84 @@ class TournamentApp(QMainWindow):
         self.faceit_stats_source.setCurrentText("Match")
         self._set_statistics_match_maps_visibility()
 
+    def _normalize_team_name_key(self, value: str) -> str:
+        text = (value or "").strip().lower()
+        text = re.sub(r"[^a-z0-9]+", "", text)
+        return text
+
+    def _build_faceit_team_key_map(self, teams: dict) -> Dict[str, str]:
+        gui_t1 = self._normalize_team_name_key(self.team1_panel.team_name.text())
+        gui_t2 = self._normalize_team_name_key(self.team2_panel.team_name.text())
+
+        f1 = teams.get("faction1") or {}
+        f2 = teams.get("faction2") or {}
+
+        def _aliases(team_obj: dict) -> List[str]:
+            vals = [
+                team_obj.get("faction_id"),
+                team_obj.get("team_id"),
+                team_obj.get("id"),
+                team_obj.get("name"),
+                team_obj.get("nickname"),
+                team_obj.get("leader"),
+            ]
+            out = []
+            for v in vals:
+                raw = str(v or "").strip()
+                if raw:
+                    out.append(raw)
+            return out
+
+        a1 = _aliases(f1)
+        a2 = _aliases(f2)
+        n1 = {self._normalize_team_name_key(x) for x in a1 if self._normalize_team_name_key(x)}
+        n2 = {self._normalize_team_name_key(x) for x in a2 if self._normalize_team_name_key(x)}
+
+        # Match GUI teams to FACEIT factions using names; fallback to slot order.
+        f1_key, f2_key = "t1", "t2"
+        if gui_t1 and gui_t2:
+            if gui_t1 in n2 and gui_t2 in n1:
+                f1_key, f2_key = "t2", "t1"
+            elif gui_t1 in n1 and gui_t2 in n2:
+                f1_key, f2_key = "t1", "t2"
+
+        mapping: Dict[str, str] = {}
+
+        def _set_aliases(values: List[str], key: str):
+            for raw in values:
+                v = str(raw or "").strip().lower()
+                if not v:
+                    continue
+                mapping[v] = key
+                norm = self._normalize_team_name_key(v)
+                if norm:
+                    mapping[norm] = key
+
+        _set_aliases(a1, f1_key)
+        _set_aliases(a2, f2_key)
+
+        mapping["faction1"] = f1_key
+        mapping["faction2"] = f2_key
+        mapping["team1"] = "t1"
+        mapping["team2"] = "t2"
+        mapping["t1"] = "t1"
+        mapping["t2"] = "t2"
+        return mapping
+
     def _extract_faceit_vote_maps(self, voting_map: dict, team_map: Dict[str, str]) -> List[dict]:
         out: List[dict] = []
 
         def _team_key(raw) -> str:
             v = str(raw or "").strip().lower()
+            if not v:
+                return ""
             if v in {"t1", "team1", "faction1"}:
-                return "t1"
+                return team_map.get(v, "t1")
             if v in {"t2", "team2", "faction2"}:
-                return "t2"
-            return team_map.get(v, "")
+                return team_map.get(v, "t2")
+            if v in team_map:
+                return team_map.get(v, "")
+            return team_map.get(self._normalize_team_name_key(v), "")
 
         def _map_name(raw) -> str:
             if isinstance(raw, dict):
@@ -2649,44 +2717,52 @@ class TournamentApp(QMainWindow):
                 return ""
             return self._normalize_map_name(str(raw))
 
+        def _append(action_label: str, map_value, by_value=""):
+            mname = _map_name(map_value)
+            if not mname:
+                return
+            out.append({
+                "map": mname,
+                "action": action_label,
+                "by": _team_key(by_value),
+                "t1": 0,
+                "t2": 0,
+                "completed": False,
+            })
+
         def _extract(action_label: str, raw):
+            if not raw:
+                return
             if isinstance(raw, list):
                 for item in raw:
-                    mname = _map_name(item)
-                    if not mname:
-                        continue
-                    by = ""
                     if isinstance(item, dict):
-                        by = _team_key(item.get("team") or item.get("team_id") or item.get("faction") or item.get("guid") or item.get("by"))
-                    out.append({"map": mname, "action": action_label, "by": by, "t1": 0, "t2": 0, "completed": False})
-            elif isinstance(raw, dict):
+                        _append(action_label, item, item.get("team") or item.get("team_id") or item.get("faction") or item.get("guid") or item.get("by") or item.get("name"))
+                    else:
+                        _append(action_label, item)
+                return
+            if isinstance(raw, dict):
                 for k, v in raw.items():
                     if isinstance(v, list):
                         for item in v:
-                            mname = _map_name(item)
-                            if not mname:
-                                continue
-                            out.append({"map": mname, "action": action_label, "by": _team_key(k), "t1": 0, "t2": 0, "completed": False})
+                            _append(action_label, item, k)
+                    elif isinstance(v, dict):
+                        _append(action_label, v, v.get("team") or v.get("team_id") or v.get("faction") or v.get("guid") or v.get("by") or k)
+                    else:
+                        _append(action_label, v, k)
+                return
+            _append(action_label, raw)
 
         _extract("Ban", voting_map.get("remove") or voting_map.get("ban") or voting_map.get("drop") or [])
         _extract("Pick", voting_map.get("pick") or voting_map.get("picked") or [])
-
-        decider = voting_map.get("decider") or voting_map.get("left") or voting_map.get("remaining") or voting_map.get("remain")
-        if isinstance(decider, list):
-            for item in decider:
-                mname = _map_name(item)
-                if mname:
-                    out.append({"map": mname, "action": "Decider", "by": "", "t1": 0, "t2": 0, "completed": False})
-        elif decider:
-            mname = _map_name(decider)
-            if mname:
-                out.append({"map": mname, "action": "Decider", "by": "", "t1": 0, "t2": 0, "completed": False})
+        _extract("Decider", voting_map.get("decider") or voting_map.get("left") or voting_map.get("remaining") or voting_map.get("remain") or [])
 
         clean: List[dict] = []
+        seen = set()
         for item in out:
-            key = (item.get("map"), item.get("action"))
-            if item.get("action") == "Decider" and any((x.get("map"), x.get("action")) == key for x in clean):
+            key = (item.get("map"), item.get("action"), item.get("by"))
+            if key in seen:
                 continue
+            seen.add(key)
             clean.append(item)
         return clean
 
@@ -2719,8 +2795,8 @@ class TournamentApp(QMainWindow):
             for team_item in teams:
                 if not isinstance(team_item, dict):
                     continue
-                tid = str(team_item.get("team_id") or team_item.get("faction_id") or team_item.get("id") or team_item.get("faction") or "").strip().lower()
-                key = team_map.get(tid, "")
+                tid = str(team_item.get("team_id") or team_item.get("faction_id") or team_item.get("id") or team_item.get("faction") or team_item.get("name") or "").strip().lower()
+                key = team_map.get(tid, "") or team_map.get(self._normalize_team_name_key(tid), "")
                 stats = team_item.get("team_stats") or team_item.get("stats") or team_item
                 score = _score_to_int(
                     stats.get("Final Score") if isinstance(stats, dict) else None
@@ -2768,10 +2844,7 @@ class TournamentApp(QMainWindow):
                     data = json.loads(resp.read().decode("utf-8", errors="ignore"))
 
                 teams = data.get("teams") or {}
-                team_map = {
-                    str((teams.get("faction1") or {}).get("faction_id") or "").strip().lower(): "t1",
-                    str((teams.get("faction2") or {}).get("faction_id") or "").strip().lower(): "t2",
-                }
+                team_map = self._build_faceit_team_key_map(teams)
                 round_results = self._extract_faceit_round_results(data.get("rounds") or [], team_map)
 
                 voting_map = ((data.get("voting") or {}).get("map") or {})
