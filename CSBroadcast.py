@@ -18,18 +18,16 @@ from PyQt5.QtWidgets import (
 # Data models
 # -----------------------------
 DEV_ASSET_DIRS = {
-    "maps":      r"C:\Suomi OW koodiprojektit\SOWBroadcast\Scoreboard\Maps",
-    "gametypes": r"C:\Suomi OW koodiprojektit\SOWBroadcast\Scoreboard\Gametypes",
-    "heroes":    r"C:\Suomi OW koodiprojektit\SOWBroadcast\Scoreboard\Heroes",
+    "maps":      r"C:\CSBroadcat\Scoreboard\Maps",
 }
 
 def _bundled_scoreboard_dir():
     """
     Palauta asennuksen mukana tulleen Scoreboard-puun sijainti:
-    <app_base>/SOWBroadcast/Scoreboard
+    <app_base>/CSBroadcast/Scoreboard
     """
     base = os.environ.get("SOWB_ROOT") or _app_base()
-    cand = os.path.join(base, "SOWBroadcast", "Scoreboard")
+    cand = os.path.join(base, "CSBroadcast", "Scoreboard")
     return cand if os.path.isdir(cand) else None
 
 def _copy_tree_if_missing(src_dir: str, dst_dir: str):
@@ -60,14 +58,12 @@ def _copy_tree_if_missing(src_dir: str, dst_dir: str):
 class Asset:
     name: str
     image_path: Optional[str] = None
-    mode: Optional[str] = None
     source_path: Optional[str] = None
 
 @dataclass
 class Player:
     name: str = ""
     faceit_link: str = ""
-    hero: str = ""
     role: str = ""
 
 @dataclass
@@ -78,7 +74,6 @@ class Team:
     score: int = 0
     color_hex: str = "#FFFFFF"
     players: List[Player] = None
-    banned_hero: str = ""
 
     def __post_init__(self):
         if self.players is None:
@@ -422,13 +417,12 @@ class BracketTeamsImportDialog(QDialog):
 # Asset Manager Dialog
 # -----------------------------
 class AssetManagerDialog(QDialog):
-    def __init__(self, parent, title: str, assets: Dict[str, Asset], mode_names: Optional[List[str]] = None):
+    def __init__(self, parent, title: str, assets: Dict[str, Asset]):
         super().__init__(parent)
         self._last_state_for_diff = None
         self.setWindowTitle(title)
         self.title = title
         self.assets = assets
-        self._mode_names = mode_names or []
 
         self.resize(700, 420)
 
@@ -442,13 +436,6 @@ class AssetManagerDialog(QDialog):
         form = QFormLayout()
         self.name_edit = QLineEdit()
         form.addRow("Name", self.name_edit)
-        self.mode_combo = None
-        if self.title == "Maps":
-            self.mode_combo = QComboBox()
-            for n in sorted(self._mode_names):
-                self.mode_combo.addItem(n)
-            form.addRow("Mode", self.mode_combo)
-
 
         logo_row = QHBoxLayout()
         self.logo_edit = QLineEdit(); self.logo_edit.setReadOnly(True)
@@ -493,10 +480,6 @@ class AssetManagerDialog(QDialog):
             p = asset.source_path or asset.image_path or ""
             self.logo_edit.setText(p)
             self._load_preview(p)
-            if self.title == "Maps" and self.mode_combo:
-                ix = self.mode_combo.findText(asset.mode or "", Qt.MatchExactly)
-                self.mode_combo.setCurrentIndex(ix if ix >= 0 else 0)
-
 
     def _browse_image(self):
         path, _ = QFileDialog.getOpenFileName(self, "Select image", "", "Images (*.png *.jpg *.jpeg *.webp)")
@@ -518,17 +501,9 @@ class AssetManagerDialog(QDialog):
         if not name:
             QMessageBox.warning(self, "Missing name", "Please enter a name.")
             return
-        mode = None
-        if self.title == "Maps" and self.mode_combo:
-            mode = self.mode_combo.currentText().strip()
         slug = TournamentApp._slugify(name)
 
-        if self.title == "Heroes":
-            rel_dir = os.path.join("Scoreboard", "Heroes")
-        elif self.title == "Game Modes":
-            rel_dir = os.path.join("Scoreboard", "Gametypes")
-        else:
-            rel_dir = os.path.join("Scoreboard", "Maps")
+        rel_dir = os.path.join("Scoreboard", "Maps")
 
         image_path = os.path.join(rel_dir, f"{slug}.png")
 
@@ -537,7 +512,6 @@ class AssetManagerDialog(QDialog):
         self.assets[name] = Asset(
             name=name,
             image_path=image_path,
-            mode=mode,
             source_path=source_path
         )
         self._reload()
@@ -556,12 +530,7 @@ class AssetManagerDialog(QDialog):
         asset = self.assets.pop(name, None)
 
         try:
-            if self.title == "Heroes":
-                category = "Heroes"
-            elif self.title in ("Game Modes", "Gametypes"):
-                category = "Gametypes"
-            else:
-                category = "Maps"
+            category = "Maps"
 
             slug = type(self.parent())._slugify(name)
             root = self.parent()._scoreboard_root()
@@ -707,9 +676,6 @@ class TeamPanel(QGroupBox):
             pr.name.setText(pdata.name)
             pr.faceit_link.setText(getattr(pdata, "faceit_link", "") or "")
 
-    def refresh_hero_lists(self):
-        return
-    
     def reset(self):
         self.team_name.clear()
         self.team_abbr.clear()
@@ -1049,7 +1015,7 @@ def _app_base():
 
 def _ensure_scoreboard_tree(root):
     subdirs = [
-        "General", "Match", "Heroes", "Maps", "Gametypes",
+        "General", "Match", "Maps",
         "Replay", "Replay\\Playlist", "Roles", "Teams", "Temp", "Waiting",
         "Standings", "Bracket"
     ]
@@ -1070,7 +1036,7 @@ class WaitingTab(QWidget):
         root = QVBoxLayout(self)
 
         base = os.environ.get("SOWB_ROOT") or _app_base()
-        cand1 = os.path.join(base, "SOWBroadcast", "Highlights")
+        cand1 = os.path.join(base, "CSBroadcast", "Highlights")
         cand2 = os.path.join(base, "Highlights")
         self.default_videos_dir = cand1 if os.path.isdir(cand1) else cand2
 
@@ -1079,7 +1045,7 @@ class WaitingTab(QWidget):
         self.videos_dir = QLineEdit()
         self.videos_dir.setReadOnly(True)
         self.videos_dir.setPlaceholderText(self.default_videos_dir or "Select a folder that contains videos")
-        self.use_default_chk = QCheckBox("Use default (SOWBroadcast\\Highlights)")
+        self.use_default_chk = QCheckBox("Use default (CSBroadcast\\Highlights)")
         self.use_default_chk.setChecked(True if self.default_videos_dir else False)
         self.use_default_chk.toggled.connect(self._on_use_default_toggled)
         btn_pick = QPushButton("Browse…")
@@ -1352,7 +1318,7 @@ class DraftTab(QWidget):
         self.reload()
 
     def _iter_map_items(self):
-        """Iteroi vain kartta-childit (ei moodiotsikoita)."""
+        """Iteroi vain kartta-childit."""
         top_count = self.tree.topLevelItemCount()
         for i in range(top_count):
             parent = self.tree.topLevelItem(i)
@@ -1360,24 +1326,22 @@ class DraftTab(QWidget):
                 yield parent.child(j)
 
     def reload(self):
-        """Lataa kartat ryhmiteltynä pelimuodoittain. Säilyttää aiemmat valinnat."""
+        """Lataa kartat puuhun. Säilyttää aiemmat valinnat."""
         old_selected = set(self.get_pool())
         self.tree.blockSignals(True)
         self.tree.clear()
 
         data = self.get_maps_by_mode() or {}
-        for mode_name, maps in data.items():
-            if not maps:
-                continue
-            mode_item = QTreeWidgetItem([mode_name or "Unspecified"])
-            mode_item.setFlags(mode_item.flags() & ~Qt.ItemIsUserCheckable)
-            self.tree.addTopLevelItem(mode_item)
-            for name in sorted(maps):
-                it = QTreeWidgetItem([name])
-                it.setFlags(it.flags() | Qt.ItemIsUserCheckable)
-                checked = (name in old_selected) or (not old_selected)
-                it.setCheckState(0, Qt.Checked if checked else Qt.Unchecked)
-                mode_item.addChild(it)
+        maps = data.get("Maps", []) if isinstance(data, dict) else []
+        parent = QTreeWidgetItem(["Maps"])
+        parent.setFlags(parent.flags() & ~Qt.ItemIsUserCheckable)
+        self.tree.addTopLevelItem(parent)
+        for name in sorted(maps):
+            it = QTreeWidgetItem([name])
+            it.setFlags(it.flags() | Qt.ItemIsUserCheckable)
+            checked = (name in old_selected) or (not old_selected)
+            it.setCheckState(0, Qt.Checked if checked else Qt.Unchecked)
+            parent.addChild(it)
 
         self.tree.expandAll()
         self.tree.blockSignals(False)
@@ -2256,7 +2220,7 @@ class BracketTab(QWidget):
 
 class BulkImportRow(QWidget):
     """Yksi rivi import-listassa."""
-    def __init__(self, kind: str, file_path: str, name_guess: str, mode_names=None):
+    def __init__(self, kind: str, file_path: str, name_guess: str):
         super().__init__()
         self.kind = kind
         self.file_path = file_path
@@ -2275,35 +2239,25 @@ class BulkImportRow(QWidget):
         row.addWidget(QLabel("Name:"), 0)
         row.addWidget(self.name_edit, 2)
 
-        self.mode_combo = None
-        if kind == "Map":
-            self.mode_combo = QComboBox()
-            self.mode_combo.addItem("")
-            for m in sorted(mode_names or []):
-                self.mode_combo.addItem(m)
-            row.addWidget(QLabel("Mode:"))
-            row.addWidget(self.mode_combo, 1)
-
     def to_result(self):
         return {
             "enabled": self.chk.isChecked(),
             "kind": self.kind,
             "file_path": self.file_path,
             "name": self.name_edit.text().strip(),
-            "mode": self.mode_combo.currentText().strip() if self.mode_combo else None,
         }
 
 
 class BulkImportDialog(QDialog):
-    """Listaa kansioista löytyneet kuvat. Nimet ja (karttojen) moodit voi muokata ennen tallennusta."""
-    def __init__(self, parent, heroes_files: list, maps_files: list, mode_names: list):
+    """Listaa kansioista löytyneet karttakuvat. Nimiä voi muokata ennen tallennusta."""
+    def __init__(self, parent, maps_files: list):
         super().__init__(parent)
         self.setWindowTitle("Bulk Import from Folders")
         self.resize(820, 520)
 
         root = QVBoxLayout(self)
 
-        info = QLabel("Review detected assets. Edit names (and modes for maps) before importing.")
+        info = QLabel("Review detected assets. Edit names before importing.")
         root.addWidget(info)
 
         self.container = QVBoxLayout()
@@ -2313,16 +2267,10 @@ class BulkImportDialog(QDialog):
 
         self.rows: list[BulkImportRow] = []
 
-        if heroes_files:
-            self.container.addWidget(QLabel("Heroes"))
-            for p, name_guess in heroes_files:
-                r = BulkImportRow("Hero", p, name_guess)
-                self.rows.append(r); self.container.addWidget(r)
-
         if maps_files:
             self.container.addWidget(QLabel("Maps"))
             for p, name_guess in maps_files:
-                r = BulkImportRow("Map", p, name_guess, mode_names=mode_names)
+                r = BulkImportRow("Map", p, name_guess)
                 self.rows.append(r); self.container.addWidget(r)
 
         btns = QHBoxLayout()
@@ -2341,7 +2289,7 @@ class BulkImportDialog(QDialog):
 class TournamentApp(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("SOW Broadcast")
+        self.setWindowTitle("CSBroadcast")
         self.resize(1400, 860)
 
         app_dir = QStandardPaths.writableLocation(QStandardPaths.AppDataLocation)
@@ -2355,9 +2303,7 @@ class TournamentApp(QMainWindow):
         self.export_dir = os.path.join(self.app_dir, "exports")
         os.makedirs(self.export_dir, exist_ok=True)
 
-        self.heroes: Dict[str, Asset] = {}
         self.maps: Dict[str, Asset] = {}
-        self.modes: Dict[str, Asset] = {}
 
         self._build_menubar()
 
@@ -2874,7 +2820,7 @@ class TournamentApp(QMainWindow):
         bundled = _bundled_scoreboard_dir()
         if not bundled:
             return
-        for sub in ("Maps", "Gametypes", "Heroes"):
+        for sub in ("Maps",):
             user_sub = os.path.join(user_root, sub)
             if os.path.isfile(os.path.join(user_sub, "index.json")):
                 continue
@@ -2883,7 +2829,6 @@ class TournamentApp(QMainWindow):
 
     def _auto_discover_assets(self):
         import os
-        import re
 
         def pick_dir(kind: str) -> str:
             dev = DEV_ASSET_DIRS.get(kind)
@@ -2891,7 +2836,7 @@ class TournamentApp(QMainWindow):
                 return dev
 
             b = _bundled_scoreboard_dir()
-            sub = "Gametypes" if kind == "gametypes" else kind.capitalize()
+            sub = kind.capitalize()
             if b:
                 cand = os.path.join(b, sub)
                 if os.path.isdir(cand):
@@ -2900,20 +2845,7 @@ class TournamentApp(QMainWindow):
             user = os.path.join(self._scoreboard_root(), sub)
             return user
 
-        loaded_maps   = self._load_assets_from_index("Maps", self.maps)
-        loaded_heroes = self._load_assets_from_index("Heroes", self.heroes)
-        loaded_modes  = self._load_assets_from_index("Gametypes", self.modes)
-
-        if not loaded_heroes:
-            heroes_dir = pick_dir("heroes")
-            heroes_files = self._scan_image_files(heroes_dir)
-            self.heroes.clear()
-            for p, name in heroes_files:
-                self.heroes[name] = Asset(
-                    name=name,
-                    image_path=os.path.join("Scoreboard", "Heroes", f"{self._slugify(name)}.png"),
-                    source_path=p
-                )
+        loaded_maps = self._load_assets_from_index("Maps", self.maps)
 
         if not loaded_maps:
             maps_dir = pick_dir("maps")
@@ -2923,35 +2855,12 @@ class TournamentApp(QMainWindow):
                 self.maps[name] = Asset(
                     name=name,
                     image_path=os.path.join("Scoreboard", "Maps", f"{self._slugify(name)}.png"),
-                    mode=None,
                     source_path=p
                 )
 
-        if not loaded_modes:
-            modes_dir = pick_dir("gametypes")
-            mode_files = self._scan_image_files(modes_dir)
-            self.modes.clear()
-            if mode_files:
-                for p, name in mode_files:
-                    self.modes[name] = Asset(
-                        name=name,
-                        image_path=os.path.join("Scoreboard", "Gametypes", f"{self._slugify(name)}.png"),
-                        source_path=p
-                    )
-            else:
-                if os.path.isdir(modes_dir):
-                    for fn in sorted(os.listdir(modes_dir)):
-                        stem, ext = os.path.splitext(fn)
-                        if ext.lower() in {".txt", ".json"}:
-                            name = re.sub(r"[-_]+", " ", stem).strip().title()
-                            if name:
-                                self.modes[name] = Asset(name=name)
-
         self._on_assets_changed()
 
-        self._export_assets_category("Heroes", self.heroes)
         self._export_assets_category("Maps", self.maps)
-        self._export_assets_category("Gametypes", self.modes)
 
     
     def _export_waiting(self, state: dict):
@@ -2986,7 +2895,7 @@ class TournamentApp(QMainWindow):
             pass
 
         base = os.environ.get("SOWB_ROOT") or _app_base()
-        def_dir1 = os.path.join(base, "SOWBroadcast", "Highlights")
+        def_dir1 = os.path.join(base, "CSBroadcast", "Highlights")
         def_dir2 = os.path.join(base, "Highlights")
         default_dir = def_dir1 if os.path.isdir(def_dir1) else def_dir2 if os.path.isdir(def_dir2) else ""
         src_dir = (ws.videos_dir or "").strip() or default_dir
@@ -3180,56 +3089,37 @@ class TournamentApp(QMainWindow):
 
     def _bulk_import_wizard(self):
         base = os.environ.get("SOWB_ROOT") or _app_base()
-        heroes_dir = os.path.join(base, "Scoreboard", "Heroes")
-        maps_dir   = os.path.join(base, "Scoreboard", "Maps")
+        maps_dir = os.path.join(base, "Scoreboard", "Maps")
 
-        heroes_files = self._scan_image_files(heroes_dir)
-        maps_files   = self._scan_image_files(maps_dir)
-
-        existing_hero_names = set(self.heroes.keys())
-        heroes_files = [(p, n if n not in existing_hero_names else n) for (p, n) in heroes_files]
+        maps_files = self._scan_image_files(maps_dir)
 
         existing_map_names = set(self.maps.keys())
         maps_files = [(p, n if n not in existing_map_names else n) for (p, n) in maps_files]
 
-        mode_names = list(self.modes.keys())
-
-        dlg = BulkImportDialog(self, heroes_files, maps_files, mode_names)
+        dlg = BulkImportDialog(self, maps_files)
         if dlg.exec_() != QDialog.Accepted:
             return
 
         results = dlg.results()
-        added_h = added_m = 0
+        added_m = 0
         for r in results:
             if not r["enabled"]:
                 continue
             name = r["name"]
             if not name:
                 continue
-            if r["kind"] == "Hero":
-                if name in self.heroes:
-                    continue
-                self.heroes[name] = Asset(
-                    name=name,
-                    image_path=os.path.join("Scoreboard", "Heroes", f"{self._slugify(name)}.png"),
-                    source_path=r["file_path"]
-                )
-                added_h += 1
-            else:
-                if name in self.maps:
-                    continue
-                mode = (r.get("mode") or "").strip() or None
-                self.maps[name] = Asset(
-                    name=name,
-                    image_path=os.path.join("Scoreboard", "Maps", f"{self._slugify(name)}.png"),
-                    mode=mode,
-                    source_path=r["file_path"]
-                )
-                added_m += 1
+            if name in self.maps:
+                continue
+            self.maps[name] = Asset(
+                name=name,
+                image_path=os.path.join("Scoreboard", "Maps", f"{self._slugify(name)}.png"),
+                source_path=r["file_path"]
+            )
+            added_m += 1
 
         self._on_assets_changed()
         QMessageBox.information(self, "Bulk Import",
-                                f"Imported {added_h} heroes and {added_m} maps.\n"
+                                f"Imported {added_m} maps.\n"
                                 "You can still edit them anytime in the Managers.")
 
 
@@ -3271,27 +3161,12 @@ class TournamentApp(QMainWindow):
         teamsm.addAction(act_im_away)
 
     def _open_asset_manager(self, title: str, store: Dict[str, Asset], on_close):
-        dlg = AssetManagerDialog(self, title, store, mode_names=None)
+        dlg = AssetManagerDialog(self, title, store)
         dlg.exec_()
         on_close()
 
     def _maps_by_mode(self) -> dict:
-        """
-        Palauta OrderedDict/dict: mode -> [map-names].
-        Jos kartalla ei ole asetettua modea, laitetaan 'Unspecified' alle.
-        Moodien järjestys otetaan self.modes-assetlistasta, lopuksi lisätään Unspecified jos tarpeen.
-        """
-        from collections import OrderedDict
-        by_mode = OrderedDict()
-        for m in self.modes.keys():
-            by_mode[m] = []
-        by_mode.setdefault("Unspecified", [])
-        for name, asset in self.maps.items():
-            mode = (asset.mode or "").strip() or "Unspecified"
-            by_mode.setdefault(mode, [])
-            by_mode[mode].append(name)
-        cleaned = OrderedDict((k, v) for k, v in by_mode.items() if v)
-        return cleaned
+        return {"Maps": sorted(self.maps.keys())}
 
 
     def _on_assets_changed(self):
@@ -3370,19 +3245,17 @@ class TournamentApp(QMainWindow):
         t = panel.to_team()
 
         t.score = 0
-        t.banned_hero = ""
-
         base_slug = self._slugify(t.name or "team")
-        default_json = os.path.join(self._teams_dir(), f"{base_slug}.sowteam.json")
+        default_json = os.path.join(self._teams_dir(), f"{base_slug}.csteam.json")
 
         path, _ = QFileDialog.getSaveFileName(
             self, "Export Team", default_json,
-            "SOW Team (*.sowteam.json);;JSON (*.json)"
+            "CS Team (*.csteam.json);;JSON (*.json)"
         )
         if not path:
             return
         if not path.lower().endswith(".json"):
-            path += ".sowteam.json"
+            path += ".csteam.json"
 
         out_dir = os.path.dirname(path)
 
@@ -3398,7 +3271,6 @@ class TournamentApp(QMainWindow):
                 {
                     "name": p.name,
                     "faceit_link": getattr(p, "faceit_link", "") or "",
-                    "hero": p.hero,
                     "role": p.role,
                 }
                 for p in (t.players or [])
@@ -3416,10 +3288,10 @@ class TournamentApp(QMainWindow):
 
 
     def _import_team_dialog(self, panel: 'TeamPanel'):
-        """Lataa yhden tiimin. Ei ylikirjoita scorea eikä bännättyä hero a."""
+        """Lataa yhden tiimin."""
         start = self._teams_dir()
         path, _ = QFileDialog.getOpenFileName(self, "Import Team", start,
-                                              "SOW Team (*.json *.json);;All files (*.*)")
+                                              "CS Team (*.csteam.json *.json);;All files (*.*)")
         if not path:
             return
         try:
@@ -3436,7 +3308,6 @@ class TournamentApp(QMainWindow):
             players.append(Player(
                 name=p.get("name", ""),
                 faceit_link=p.get("faceit_link", p.get("faceit", "")),
-                hero=p.get("hero", ""),
                 role=p.get("role", ""),
             ))
         while len(players) < 8:
@@ -3448,7 +3319,6 @@ class TournamentApp(QMainWindow):
             logo_path=None,
             score=keep_score,
             players=players,
-            banned_hero=""
         )
 
         logo_rel = data.get("logo_png")
@@ -3593,10 +3463,8 @@ class TournamentApp(QMainWindow):
                 for k in od.keys():
                     a, b = od.get(k) or {}, nd.get(k) or {}
                     if (a.get("name") != b.get("name")) \
-                       or (a.get("image_path") != b.get("image_path")) \
-                       or (a.get("mode") != b.get("mode")):
+                       or (a.get("image_path") != b.get("image_path")):
                         changed = True
-
                         break
             if changed:
                 keys.append(f"assets.{cat}")
@@ -3687,7 +3555,7 @@ class TournamentApp(QMainWindow):
     def _load_assets_from_index(self, category: str, target_dict: dict) -> bool:
         """
         Lataa Scoreboard/<category>/index.json ja täyttää target_dict:
-        - category: "Maps" | "Heroes" | "Gametypes"
+        - category: "Maps"
         Palauttaa True jos lataus onnistui, muuten False.
         """
         root = self._scoreboard_root()
@@ -3700,7 +3568,7 @@ class TournamentApp(QMainWindow):
             with open(p, "r", encoding="utf-8") as f:
                 data = json.load(f)
 
-            key = "maps" if category == "Maps" else "heroes" if category == "Heroes" else "modes"
+            key = "maps"
             rows = data.get(key, [])
             target_dict.clear()
 
@@ -3708,7 +3576,6 @@ class TournamentApp(QMainWindow):
                 name = (it.get("name") or "").strip()
                 img_rel = (it.get("image") or "").replace("/", os.sep)
                 img_abs = os.path.join(root, img_rel) if img_rel else None
-                mode = it.get("mode") if category == "Maps" else None
 
                 if not name:
                     continue
@@ -3716,7 +3583,6 @@ class TournamentApp(QMainWindow):
                 target_dict[name] = Asset(
                     name=name,
                     image_path=img_rel if img_rel else None,
-                    mode=mode,
                     source_path=img_abs if (img_abs and os.path.isfile(img_abs)) else None
                 )
             return True
@@ -3843,7 +3709,7 @@ class TournamentApp(QMainWindow):
             except Exception as e:
                 print(f"[Maps] copy failed {src} -> {out_png}: {e}")
 
-        if category_name in {"Maps", "Heroes", "Gametypes"}:
+        if category_name == "Maps":
             items = []
             for name, asset in assets.items():
                 slug = self._slugify(name)
@@ -3851,16 +3717,10 @@ class TournamentApp(QMainWindow):
                 img_rel = _norm_rel(out_png, root)
 
                 item = {"name": name, "slug": slug, "image": img_rel}
-                if category_name == "Maps":
-                    item["mode"] = (asset.mode or "")
                 items.append(item)
 
             index_json_path = os.path.join(cat_dir, "index.json")
-            payload = (
-                {"maps": items} if category_name == "Maps" else
-                {"heroes": items} if category_name == "Heroes" else
-                {"modes": items}
-            )
+            payload = {"maps": items}
             with open(index_json_path, "w", encoding="utf-8") as f:
                 json.dump(payload, f, ensure_ascii=False, indent=2)
 
@@ -3883,9 +3743,7 @@ class TournamentApp(QMainWindow):
         self._save_pixmap_as_png(settings.transition_logo_path, os.path.join(gen_dir, "TransitionLogo.png"), force=True)
 
     def _export_scoreboard(self, state: dict):
-        self._export_assets_category("Heroes", self.heroes)
         self._export_assets_category("Maps", self.maps)
-        self._export_assets_category("Gametypes", self.modes)
 
         g = state.get("general") or {}
         settings = GeneralSettings(**g) if isinstance(g, dict) else GeneralSettings()
@@ -4115,7 +3973,7 @@ class TournamentApp(QMainWindow):
         self.maps = {k: Asset(**v) for k, v in assets.get("maps", {}).items()}
         self._on_assets_changed()
 
-        team_allowed = {"name", "abbr", "logo_path", "score", "color_hex", "banned_hero"}
+        team_allowed = {"name", "abbr", "logo_path", "score", "color_hex"}
         t1 = Team(**{k: v for k, v in state.get("team1", {}).items() if k in team_allowed})
         t1.players = [Player(**p) for p in state.get("team1", {}).get("players", [])]
         t2 = Team(**{k: v for k, v in state.get("team2", {}).items() if k in team_allowed})
@@ -4463,7 +4321,7 @@ class TournamentApp(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(
             self, "Load state",
             start,
-            "SOW Broadcast (*.sowbroadcast.json);;JSON (*.json);;All files (*.*)"
+            "CSBroadcast (*.csbroadcast.json);;JSON (*.json);;All files (*.*)"
         )
         if not path:
             return
@@ -4498,8 +4356,8 @@ def _start_http_server(bind="127.0.0.1", port=8324):
 if __name__ == "__main__":
     from PyQt5.QtCore import QCoreApplication
 
-    QCoreApplication.setOrganizationName("SOWBroadcast")
-    QCoreApplication.setApplicationName("SOWBroadcast")
+    QCoreApplication.setOrganizationName("CSBroadcast")
+    QCoreApplication.setApplicationName("CSBroadcast")
     
     _start_http_server()
 
