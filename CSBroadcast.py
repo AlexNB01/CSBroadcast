@@ -19,7 +19,6 @@ from PyQt5.QtWidgets import (
 # -----------------------------
 DEV_ASSET_DIRS = {
     "maps":      r"C:\CSBroadcat\Scoreboard\Maps",
-    "heroes":    r"C:\CSBroadcat\Scoreboard\Heroes",
 }
 
 def _bundled_scoreboard_dir():
@@ -65,7 +64,6 @@ class Asset:
 class Player:
     name: str = ""
     faceit_link: str = ""
-    hero: str = ""
     role: str = ""
 
 @dataclass
@@ -76,7 +74,6 @@ class Team:
     score: int = 0
     color_hex: str = "#FFFFFF"
     players: List[Player] = None
-    banned_hero: str = ""
 
     def __post_init__(self):
         if self.players is None:
@@ -506,10 +503,7 @@ class AssetManagerDialog(QDialog):
             return
         slug = TournamentApp._slugify(name)
 
-        if self.title == "Heroes":
-            rel_dir = os.path.join("Scoreboard", "Heroes")
-        else:
-            rel_dir = os.path.join("Scoreboard", "Maps")
+        rel_dir = os.path.join("Scoreboard", "Maps")
 
         image_path = os.path.join(rel_dir, f"{slug}.png")
 
@@ -536,10 +530,7 @@ class AssetManagerDialog(QDialog):
         asset = self.assets.pop(name, None)
 
         try:
-            if self.title == "Heroes":
-                category = "Heroes"
-            else:
-                category = "Maps"
+            category = "Maps"
 
             slug = type(self.parent())._slugify(name)
             root = self.parent()._scoreboard_root()
@@ -685,9 +676,6 @@ class TeamPanel(QGroupBox):
             pr.name.setText(pdata.name)
             pr.faceit_link.setText(getattr(pdata, "faceit_link", "") or "")
 
-    def refresh_hero_lists(self):
-        return
-    
     def reset(self):
         self.team_name.clear()
         self.team_abbr.clear()
@@ -1027,7 +1015,7 @@ def _app_base():
 
 def _ensure_scoreboard_tree(root):
     subdirs = [
-        "General", "Match", "Heroes", "Maps",
+        "General", "Match", "Maps",
         "Replay", "Replay\\Playlist", "Roles", "Teams", "Temp", "Waiting",
         "Standings", "Bracket"
     ]
@@ -2261,8 +2249,8 @@ class BulkImportRow(QWidget):
 
 
 class BulkImportDialog(QDialog):
-    """Listaa kansioista löytyneet kuvat. Nimiä voi muokata ennen tallennusta."""
-    def __init__(self, parent, heroes_files: list, maps_files: list):
+    """Listaa kansioista löytyneet karttakuvat. Nimiä voi muokata ennen tallennusta."""
+    def __init__(self, parent, maps_files: list):
         super().__init__(parent)
         self.setWindowTitle("Bulk Import from Folders")
         self.resize(820, 520)
@@ -2278,12 +2266,6 @@ class BulkImportDialog(QDialog):
         root.addWidget(scroll_area, 1)
 
         self.rows: list[BulkImportRow] = []
-
-        if heroes_files:
-            self.container.addWidget(QLabel("Heroes"))
-            for p, name_guess in heroes_files:
-                r = BulkImportRow("Hero", p, name_guess)
-                self.rows.append(r); self.container.addWidget(r)
 
         if maps_files:
             self.container.addWidget(QLabel("Maps"))
@@ -2321,7 +2303,6 @@ class TournamentApp(QMainWindow):
         self.export_dir = os.path.join(self.app_dir, "exports")
         os.makedirs(self.export_dir, exist_ok=True)
 
-        self.heroes: Dict[str, Asset] = {}
         self.maps: Dict[str, Asset] = {}
 
         self._build_menubar()
@@ -2839,7 +2820,7 @@ class TournamentApp(QMainWindow):
         bundled = _bundled_scoreboard_dir()
         if not bundled:
             return
-        for sub in ("Maps", "Heroes"):
+        for sub in ("Maps",):
             user_sub = os.path.join(user_root, sub)
             if os.path.isfile(os.path.join(user_sub, "index.json")):
                 continue
@@ -2864,19 +2845,7 @@ class TournamentApp(QMainWindow):
             user = os.path.join(self._scoreboard_root(), sub)
             return user
 
-        loaded_maps   = self._load_assets_from_index("Maps", self.maps)
-        loaded_heroes = self._load_assets_from_index("Heroes", self.heroes)
-
-        if not loaded_heroes:
-            heroes_dir = pick_dir("heroes")
-            heroes_files = self._scan_image_files(heroes_dir)
-            self.heroes.clear()
-            for p, name in heroes_files:
-                self.heroes[name] = Asset(
-                    name=name,
-                    image_path=os.path.join("Scoreboard", "Heroes", f"{self._slugify(name)}.png"),
-                    source_path=p
-                )
+        loaded_maps = self._load_assets_from_index("Maps", self.maps)
 
         if not loaded_maps:
             maps_dir = pick_dir("maps")
@@ -2891,7 +2860,6 @@ class TournamentApp(QMainWindow):
 
         self._on_assets_changed()
 
-        self._export_assets_category("Heroes", self.heroes)
         self._export_assets_category("Maps", self.maps)
 
     
@@ -3121,52 +3089,37 @@ class TournamentApp(QMainWindow):
 
     def _bulk_import_wizard(self):
         base = os.environ.get("SOWB_ROOT") or _app_base()
-        heroes_dir = os.path.join(base, "Scoreboard", "Heroes")
-        maps_dir   = os.path.join(base, "Scoreboard", "Maps")
+        maps_dir = os.path.join(base, "Scoreboard", "Maps")
 
-        heroes_files = self._scan_image_files(heroes_dir)
-        maps_files   = self._scan_image_files(maps_dir)
-
-        existing_hero_names = set(self.heroes.keys())
-        heroes_files = [(p, n if n not in existing_hero_names else n) for (p, n) in heroes_files]
+        maps_files = self._scan_image_files(maps_dir)
 
         existing_map_names = set(self.maps.keys())
         maps_files = [(p, n if n not in existing_map_names else n) for (p, n) in maps_files]
 
-        dlg = BulkImportDialog(self, heroes_files, maps_files)
+        dlg = BulkImportDialog(self, maps_files)
         if dlg.exec_() != QDialog.Accepted:
             return
 
         results = dlg.results()
-        added_h = added_m = 0
+        added_m = 0
         for r in results:
             if not r["enabled"]:
                 continue
             name = r["name"]
             if not name:
                 continue
-            if r["kind"] == "Hero":
-                if name in self.heroes:
-                    continue
-                self.heroes[name] = Asset(
-                    name=name,
-                    image_path=os.path.join("Scoreboard", "Heroes", f"{self._slugify(name)}.png"),
-                    source_path=r["file_path"]
-                )
-                added_h += 1
-            else:
-                if name in self.maps:
-                    continue
-                self.maps[name] = Asset(
-                    name=name,
-                    image_path=os.path.join("Scoreboard", "Maps", f"{self._slugify(name)}.png"),
-                    source_path=r["file_path"]
-                )
-                added_m += 1
+            if name in self.maps:
+                continue
+            self.maps[name] = Asset(
+                name=name,
+                image_path=os.path.join("Scoreboard", "Maps", f"{self._slugify(name)}.png"),
+                source_path=r["file_path"]
+            )
+            added_m += 1
 
         self._on_assets_changed()
         QMessageBox.information(self, "Bulk Import",
-                                f"Imported {added_h} heroes and {added_m} maps.\n"
+                                f"Imported {added_m} maps.\n"
                                 "You can still edit them anytime in the Managers.")
 
 
@@ -3292,8 +3245,6 @@ class TournamentApp(QMainWindow):
         t = panel.to_team()
 
         t.score = 0
-        t.banned_hero = ""
-
         base_slug = self._slugify(t.name or "team")
         default_json = os.path.join(self._teams_dir(), f"{base_slug}.csteam.json")
 
@@ -3320,7 +3271,6 @@ class TournamentApp(QMainWindow):
                 {
                     "name": p.name,
                     "faceit_link": getattr(p, "faceit_link", "") or "",
-                    "hero": p.hero,
                     "role": p.role,
                 }
                 for p in (t.players or [])
@@ -3338,7 +3288,7 @@ class TournamentApp(QMainWindow):
 
 
     def _import_team_dialog(self, panel: 'TeamPanel'):
-        """Lataa yhden tiimin. Ei ylikirjoita scorea eikä bännättyä hero a."""
+        """Lataa yhden tiimin."""
         start = self._teams_dir()
         path, _ = QFileDialog.getOpenFileName(self, "Import Team", start,
                                               "CS Team (*.csteam.json *.json);;All files (*.*)")
@@ -3358,7 +3308,6 @@ class TournamentApp(QMainWindow):
             players.append(Player(
                 name=p.get("name", ""),
                 faceit_link=p.get("faceit_link", p.get("faceit", "")),
-                hero=p.get("hero", ""),
                 role=p.get("role", ""),
             ))
         while len(players) < 8:
@@ -3370,7 +3319,6 @@ class TournamentApp(QMainWindow):
             logo_path=None,
             score=keep_score,
             players=players,
-            banned_hero=""
         )
 
         logo_rel = data.get("logo_png")
@@ -3607,7 +3555,7 @@ class TournamentApp(QMainWindow):
     def _load_assets_from_index(self, category: str, target_dict: dict) -> bool:
         """
         Lataa Scoreboard/<category>/index.json ja täyttää target_dict:
-        - category: "Maps" | "Heroes"
+        - category: "Maps"
         Palauttaa True jos lataus onnistui, muuten False.
         """
         root = self._scoreboard_root()
@@ -3620,7 +3568,7 @@ class TournamentApp(QMainWindow):
             with open(p, "r", encoding="utf-8") as f:
                 data = json.load(f)
 
-            key = "maps" if category == "Maps" else "heroes"
+            key = "maps"
             rows = data.get(key, [])
             target_dict.clear()
 
@@ -3761,7 +3709,7 @@ class TournamentApp(QMainWindow):
             except Exception as e:
                 print(f"[Maps] copy failed {src} -> {out_png}: {e}")
 
-        if category_name in {"Maps", "Heroes"}:
+        if category_name == "Maps":
             items = []
             for name, asset in assets.items():
                 slug = self._slugify(name)
@@ -3772,7 +3720,7 @@ class TournamentApp(QMainWindow):
                 items.append(item)
 
             index_json_path = os.path.join(cat_dir, "index.json")
-            payload = {"maps": items} if category_name == "Maps" else {"heroes": items}
+            payload = {"maps": items}
             with open(index_json_path, "w", encoding="utf-8") as f:
                 json.dump(payload, f, ensure_ascii=False, indent=2)
 
@@ -3795,7 +3743,6 @@ class TournamentApp(QMainWindow):
         self._save_pixmap_as_png(settings.transition_logo_path, os.path.join(gen_dir, "TransitionLogo.png"), force=True)
 
     def _export_scoreboard(self, state: dict):
-        self._export_assets_category("Heroes", self.heroes)
         self._export_assets_category("Maps", self.maps)
 
         g = state.get("general") or {}
@@ -4026,7 +3973,7 @@ class TournamentApp(QMainWindow):
         self.maps = {k: Asset(**v) for k, v in assets.get("maps", {}).items()}
         self._on_assets_changed()
 
-        team_allowed = {"name", "abbr", "logo_path", "score", "color_hex", "banned_hero"}
+        team_allowed = {"name", "abbr", "logo_path", "score", "color_hex"}
         t1 = Team(**{k: v for k, v in state.get("team1", {}).items() if k in team_allowed})
         t1.players = [Player(**p) for p in state.get("team1", {}).get("players", [])]
         t2 = Team(**{k: v for k, v in state.get("team2", {}).items() if k in team_allowed})
