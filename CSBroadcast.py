@@ -18,18 +18,18 @@ from PyQt5.QtWidgets import (
 # Data models
 # -----------------------------
 DEV_ASSET_DIRS = {
-    "maps":      r"C:\Suomi OW koodiprojektit\SOWBroadcast\Scoreboard\Maps",
-    "gametypes": r"C:\Suomi OW koodiprojektit\SOWBroadcast\Scoreboard\Gametypes",
-    "heroes":    r"C:\Suomi OW koodiprojektit\SOWBroadcast\Scoreboard\Heroes",
+    "maps":      r"C:\CSBroadcat\Scoreboard\Maps",
+    "gametypes": r"C:\CSBroadcat\Scoreboard\Gametypes",
+    "heroes":    r"C:\CSBroadcat\Scoreboard\Heroes",
 }
 
 def _bundled_scoreboard_dir():
     """
     Palauta asennuksen mukana tulleen Scoreboard-puun sijainti:
-    <app_base>/SOWBroadcast/Scoreboard
+    <app_base>/CSBroadcast/Scoreboard
     """
     base = os.environ.get("SOWB_ROOT") or _app_base()
-    cand = os.path.join(base, "SOWBroadcast", "Scoreboard")
+    cand = os.path.join(base, "CSBroadcast", "Scoreboard")
     return cand if os.path.isdir(cand) else None
 
 def _copy_tree_if_missing(src_dir: str, dst_dir: str):
@@ -1070,7 +1070,7 @@ class WaitingTab(QWidget):
         root = QVBoxLayout(self)
 
         base = os.environ.get("SOWB_ROOT") or _app_base()
-        cand1 = os.path.join(base, "SOWBroadcast", "Highlights")
+        cand1 = os.path.join(base, "CSBroadcast", "Highlights")
         cand2 = os.path.join(base, "Highlights")
         self.default_videos_dir = cand1 if os.path.isdir(cand1) else cand2
 
@@ -1079,7 +1079,7 @@ class WaitingTab(QWidget):
         self.videos_dir = QLineEdit()
         self.videos_dir.setReadOnly(True)
         self.videos_dir.setPlaceholderText(self.default_videos_dir or "Select a folder that contains videos")
-        self.use_default_chk = QCheckBox("Use default (SOWBroadcast\\Highlights)")
+        self.use_default_chk = QCheckBox("Use default (CSBroadcast\\Highlights)")
         self.use_default_chk.setChecked(True if self.default_videos_dir else False)
         self.use_default_chk.toggled.connect(self._on_use_default_toggled)
         btn_pick = QPushButton("Browse…")
@@ -2986,7 +2986,7 @@ class TournamentApp(QMainWindow):
             pass
 
         base = os.environ.get("SOWB_ROOT") or _app_base()
-        def_dir1 = os.path.join(base, "SOWBroadcast", "Highlights")
+        def_dir1 = os.path.join(base, "CSBroadcast", "Highlights")
         def_dir2 = os.path.join(base, "Highlights")
         default_dir = def_dir1 if os.path.isdir(def_dir1) else def_dir2 if os.path.isdir(def_dir2) else ""
         src_dir = (ws.videos_dir or "").strip() or default_dir
@@ -4498,8 +4498,8 @@ def _start_http_server(bind="127.0.0.1", port=8324):
 if __name__ == "__main__":
     from PyQt5.QtCore import QCoreApplication
 
-    QCoreApplication.setOrganizationName("SOWBroadcast")
-    QCoreApplication.setApplicationName("SOWBroadcast")
+    QCoreApplication.setOrganizationName("CSBroadcast")
+    QCoreApplication.setApplicationName("CSBroadcast")
     
     _start_http_server()
 
