@@ -821,6 +821,7 @@ class MapRow(QWidget):
 
 class GeneralTab(QWidget):
     updated = pyqtSignal()
+    import_maps_requested = pyqtSignal()
     COLOR_FIELDS = [
         ("primary",    "Primary – Background color behind all text"),
         ("secondary",  "Secondary – Color of most text"),
@@ -848,6 +849,13 @@ class GeneralTab(QWidget):
         bo_lay.addWidget(self.maps_count)
         bo_lay.addStretch(1)
         root.addWidget(bo_box)
+
+        import_row = QHBoxLayout()
+        self.import_faceit_btn = QPushButton("Import maps from FACEIT")
+        self.import_faceit_btn.clicked.connect(self.import_maps_requested.emit)
+        import_row.addWidget(self.import_faceit_btn)
+        import_row.addStretch(1)
+        root.addLayout(import_row)
 
         people_box = QGroupBox("Casters & Host")
         people = QGridLayout(people_box)
@@ -2356,16 +2364,6 @@ class TournamentApp(QMainWindow):
             maps_layout.addWidget(mr)
         self._refresh_map_row_team_labels()
 
-        current_row = QHBoxLayout()
-        current_row.addWidget(QLabel("Current:"))
-        self.current_map_buttons: List[QRadioButton] = []
-        for i in range(1, 8):
-            rb = QRadioButton(str(i))
-            self.current_map_buttons.append(rb)
-            current_row.addWidget(rb)
-        current_row.addStretch()
-        maps_layout.addLayout(current_row)
-
         match_root.addWidget(maps_box, 4)
 
         bottom = QHBoxLayout()
@@ -2449,6 +2447,7 @@ class TournamentApp(QMainWindow):
         # --- GENERAL TAB ---
         self.general_tab = GeneralTab()
         self.general_tab.updated.connect(self._update_general_only)
+        self.general_tab.import_maps_requested.connect(self._import_maps_from_faceit)
         tabs.addTab(self.general_tab, "General")
         self.general_tab.from_settings(GeneralSettings())
         
@@ -2634,6 +2633,148 @@ class TournamentApp(QMainWindow):
         self._set_match_map_checks(names, checked=True)
         self.faceit_stats_source.setCurrentText("Match")
         self._set_statistics_match_maps_visibility()
+
+    def _extract_faceit_vote_maps(self, voting_map: dict, team_map: Dict[str, str]) -> List[dict]:
+        out: List[dict] = []
+
+        def _team_key(raw) -> str:
+            v = str(raw or "").strip().lower()
+            if v in {"t1", "team1", "faction1"}:
+                return "t1"
+            if v in {"t2", "team2", "faction2"}:
+                return "t2"
+            return team_map.get(v, "")
+
+        def _map_name(raw) -> str:
+            if isinstance(raw, dict):
+                for k in ("map", "value", "name", "map_name"):
+                    if raw.get(k):
+                        return self._normalize_map_name(str(raw.get(k)))
+                return ""
+            return self._normalize_map_name(str(raw))
+
+        def _extract(action_label: str, raw):
+            if isinstance(raw, list):
+                for item in raw:
+                    mname = _map_name(item)
+                    if not mname:
+                        continue
+                    by = ""
+                    if isinstance(item, dict):
+                        by = _team_key(item.get("team") or item.get("team_id") or item.get("faction") or item.get("guid") or item.get("by"))
+                    out.append({"map": mname, "action": action_label, "by": by})
+            elif isinstance(raw, dict):
+                for k, v in raw.items():
+                    if isinstance(v, list):
+                        for item in v:
+                            mname = _map_name(item)
+                            if not mname:
+                                continue
+                            out.append({"map": mname, "action": action_label, "by": _team_key(k)})
+
+        _extract("Ban", voting_map.get("remove") or voting_map.get("ban") or voting_map.get("drop") or [])
+        _extract("Pick", voting_map.get("pick") or voting_map.get("picked") or [])
+
+        decider = voting_map.get("decider") or voting_map.get("left") or voting_map.get("remaining") or voting_map.get("remain")
+        if isinstance(decider, list):
+            for item in decider:
+                mname = _map_name(item)
+                if mname:
+                    out.append({"map": mname, "action": "Decider", "by": ""})
+        elif decider:
+            mname = _map_name(decider)
+            if mname:
+                out.append({"map": mname, "action": "Decider", "by": ""})
+
+        clean: List[dict] = []
+        for item in out:
+            key = (item.get("map"), item.get("action"))
+            if item.get("action") == "Decider" and any((x.get("map"), x.get("action")) == key for x in clean):
+                continue
+            clean.append(item)
+        return clean
+
+    def _fetch_faceit_draft_maps(self, url: str) -> List[dict]:
+        match_ids = self._extract_faceit_match_ids(url)
+        api_key = (self.faceit_api_key.text() or "").strip()
+        if not match_ids:
+            return []
+
+        import urllib.request, urllib.error, json
+
+        for match_id in match_ids:
+            headers = {}
+            if api_key:
+                headers["Authorization"] = f"Bearer {api_key}"
+            try:
+                req = urllib.request.Request(
+                    f"https://open.faceit.com/data/v4/matches/{match_id}",
+                    headers=headers,
+                )
+                with urllib.request.urlopen(req, timeout=8.0) as resp:
+                    data = json.loads(resp.read().decode("utf-8", errors="ignore"))
+
+                teams = data.get("teams") or {}
+                team_map = {
+                    str((teams.get("faction1") or {}).get("faction_id") or "").strip().lower(): "t1",
+                    str((teams.get("faction2") or {}).get("faction_id") or "").strip().lower(): "t2",
+                }
+                voting_map = ((data.get("voting") or {}).get("map") or {})
+                draft = self._extract_faceit_vote_maps(voting_map, team_map)
+                if draft:
+                    return draft
+
+                rounds = data.get("rounds") or []
+                fallback = []
+                for rnd in rounds:
+                    map_name = self._normalize_map_name(str((rnd.get("round_stats") or {}).get("Map") or ""))
+                    if not map_name:
+                        continue
+                    fallback.append({"map": map_name, "action": "Pick", "by": ""})
+                if fallback:
+                    return fallback
+            except Exception:
+                continue
+        return []
+
+    def _import_maps_from_faceit(self):
+        url = (self.faceit_match_page.text() or "").strip()
+        if not url:
+            QMessageBox.warning(self, "FACEIT import", "Aseta ensin ottelun FACEIT-linkki Statistics-välilehdellä (Match page).")
+            return
+
+        draft_maps = self._fetch_faceit_draft_maps(url)
+        if not draft_maps:
+            QMessageBox.warning(self, "FACEIT import", "Karttoja ei saatu haettua FACEIT-linkistä.")
+            return
+
+        for mr in self.map_rows:
+            mr.reset()
+
+        for idx, item in enumerate(draft_maps[:len(self.map_rows)], start=1):
+            mr = self.map_rows[idx - 1]
+            map_name = (item.get("map") or "").strip()
+            if map_name:
+                map_ix = mr.map_combo.findText(map_name)
+                if map_ix < 0:
+                    mr.map_combo.addItem(map_name)
+                    map_ix = mr.map_combo.findText(map_name)
+                mr.map_combo.setCurrentIndex(map_ix if map_ix >= 0 else 0)
+
+            action = (item.get("action") or "").strip()
+            action_ix = mr.draft_action.findText(action if action else "—")
+            mr.draft_action.setCurrentIndex(action_ix if action_ix >= 0 else 0)
+
+            by = (item.get("by") or "").strip().lower()
+            mr.set_selected_draft_by(by if by in {"t1", "t2"} else "")
+            mr.t1score.setValue(0)
+            mr.t2score.setValue(0)
+            mr.completed.setChecked(False)
+            mr._update_score_enabled()
+
+        self._autosave(self._collect_state())
+        self._update()
+        QMessageBox.information(self, "FACEIT import", f"Tuotiin {min(len(draft_maps), len(self.map_rows))} karttaa FACEITista.")
 
     def _parse_faceit_stat_number(self, value):
         if value is None:
@@ -3869,8 +4010,6 @@ class TournamentApp(QMainWindow):
         self._reset_statistics_tab()
         self.team1_panel.color_hex = "#55aaff"; self.team1_panel._apply_color_style()
         self.team2_panel.color_hex = "#ff557f"; self.team2_panel._apply_color_style()
-        for i, rb in enumerate(self.current_map_buttons, start=1):
-            rb.setChecked(i == 1)
         for mr in self.map_rows:
             mr.reset()
         self._autosave(self._collect_state())
@@ -3916,18 +4055,30 @@ class TournamentApp(QMainWindow):
 
 
 
+    def _first_uncompleted_pick_or_decider(self, maps: List[dict]) -> Optional[int]:
+        for item in maps or []:
+            action = (item.get("draft_action") or "").strip().lower()
+            if action not in {"pick", "decider"}:
+                continue
+            if bool(item.get("completed", False)):
+                continue
+            if not (item.get("map") or "").strip():
+                continue
+            try:
+                idx = int(item.get("index") or 0)
+            except (TypeError, ValueError):
+                idx = 0
+            if idx > 0:
+                return idx
+        return None
+
+
     # ---------------------
     # Update: export JSON for persistence/OBS & autosave
     # ---------------------
     def _collect_state(self):
         t1 = self.team1_panel.to_team()
         t2 = self.team2_panel.to_team()
-
-        current_ix = None
-        for i, rb in enumerate(self.current_map_buttons, start=1):
-            if rb.isChecked():
-                current_ix = i
-                break
 
         maps = []
         for idx, mr in enumerate(self.map_rows, start=1):
@@ -3954,6 +4105,8 @@ class TournamentApp(QMainWindow):
         selected_maps = [(cb.text() or "").strip() for cb in self.faceit_match_map_checks if cb.isChecked() and (cb.text() or "").strip()]
         source_text = (self.faceit_stats_source.currentText() or "Tournament").strip().lower()
         source_key = "match" if source_text == "match" else "tournament"
+
+        current_ix = self._first_uncompleted_pick_or_decider(maps)
 
         state = {
             "team1": asdict(t1),
@@ -4069,10 +4222,6 @@ class TournamentApp(QMainWindow):
                 mr.completed.setChecked(bool(item.get("completed", False)))
                 mr._update_score_enabled()
 
-
-        cur = state.get("current_map")
-        for i, rb in enumerate(self.current_map_buttons, start=1):
-            rb.setChecked(i == cur)
         
         gdata = state.get("general", {})
         self.general_tab.from_settings(GeneralSettings(**gdata))
