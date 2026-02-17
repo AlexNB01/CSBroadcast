@@ -821,7 +821,6 @@ class MapRow(QWidget):
 
 class GeneralTab(QWidget):
     updated = pyqtSignal()
-    import_maps_requested = pyqtSignal()
     COLOR_FIELDS = [
         ("primary",    "Primary – Background color behind all text"),
         ("secondary",  "Secondary – Color of most text"),
@@ -850,12 +849,6 @@ class GeneralTab(QWidget):
         bo_lay.addStretch(1)
         root.addWidget(bo_box)
 
-        import_row = QHBoxLayout()
-        self.import_faceit_btn = QPushButton("Import maps from FACEIT")
-        self.import_faceit_btn.clicked.connect(self.import_maps_requested.emit)
-        import_row.addWidget(self.import_faceit_btn)
-        import_row.addStretch(1)
-        root.addLayout(import_row)
 
         people_box = QGroupBox("Casters & Host")
         people = QGridLayout(people_box)
@@ -2364,6 +2357,10 @@ class TournamentApp(QMainWindow):
             maps_layout.addWidget(mr)
         self._refresh_map_row_team_labels()
 
+        self.import_faceit_btn = QPushButton("Import maps from FACEIT")
+        self.import_faceit_btn.clicked.connect(self._import_maps_from_faceit)
+        maps_layout.addWidget(self.import_faceit_btn)
+
         match_root.addWidget(maps_box, 4)
 
         bottom = QHBoxLayout()
@@ -2447,7 +2444,6 @@ class TournamentApp(QMainWindow):
         # --- GENERAL TAB ---
         self.general_tab = GeneralTab()
         self.general_tab.updated.connect(self._update_general_only)
-        self.general_tab.import_maps_requested.connect(self._import_maps_from_faceit)
         tabs.addTab(self.general_tab, "General")
         self.general_tab.from_settings(GeneralSettings())
         
@@ -2662,7 +2658,7 @@ class TournamentApp(QMainWindow):
                     by = ""
                     if isinstance(item, dict):
                         by = _team_key(item.get("team") or item.get("team_id") or item.get("faction") or item.get("guid") or item.get("by"))
-                    out.append({"map": mname, "action": action_label, "by": by})
+                    out.append({"map": mname, "action": action_label, "by": by, "t1": 0, "t2": 0, "completed": False})
             elif isinstance(raw, dict):
                 for k, v in raw.items():
                     if isinstance(v, list):
@@ -2670,7 +2666,7 @@ class TournamentApp(QMainWindow):
                             mname = _map_name(item)
                             if not mname:
                                 continue
-                            out.append({"map": mname, "action": action_label, "by": _team_key(k)})
+                            out.append({"map": mname, "action": action_label, "by": _team_key(k), "t1": 0, "t2": 0, "completed": False})
 
         _extract("Ban", voting_map.get("remove") or voting_map.get("ban") or voting_map.get("drop") or [])
         _extract("Pick", voting_map.get("pick") or voting_map.get("picked") or [])
@@ -2680,11 +2676,11 @@ class TournamentApp(QMainWindow):
             for item in decider:
                 mname = _map_name(item)
                 if mname:
-                    out.append({"map": mname, "action": "Decider", "by": ""})
+                    out.append({"map": mname, "action": "Decider", "by": "", "t1": 0, "t2": 0, "completed": False})
         elif decider:
             mname = _map_name(decider)
             if mname:
-                out.append({"map": mname, "action": "Decider", "by": ""})
+                out.append({"map": mname, "action": "Decider", "by": "", "t1": 0, "t2": 0, "completed": False})
 
         clean: List[dict] = []
         for item in out:
@@ -2693,6 +2689,63 @@ class TournamentApp(QMainWindow):
                 continue
             clean.append(item)
         return clean
+
+    def _extract_faceit_round_results(self, rounds: List[dict], team_map: Dict[str, str]) -> Dict[str, List[dict]]:
+        result: Dict[str, List[dict]] = {}
+
+        def _score_to_int(value) -> Optional[int]:
+            text = str(value or "").strip()
+            if not text:
+                return None
+            m = re.search(r"-?\d+", text)
+            if not m:
+                return None
+            try:
+                return int(m.group(0))
+            except Exception:
+                return None
+
+        for rnd in (rounds or []):
+            map_name = self._normalize_map_name(str((rnd.get("round_stats") or {}).get("Map") or ""))
+            if not map_name:
+                continue
+
+            t1_score = None
+            t2_score = None
+            teams = rnd.get("teams") or rnd.get("results") or []
+            if isinstance(teams, dict):
+                teams = list(teams.values())
+
+            for team_item in teams:
+                if not isinstance(team_item, dict):
+                    continue
+                tid = str(team_item.get("team_id") or team_item.get("faction_id") or team_item.get("id") or team_item.get("faction") or "").strip().lower()
+                key = team_map.get(tid, "")
+                stats = team_item.get("team_stats") or team_item.get("stats") or team_item
+                score = _score_to_int(
+                    stats.get("Final Score") if isinstance(stats, dict) else None
+                )
+                if score is None and isinstance(stats, dict):
+                    score = _score_to_int(stats.get("Score") or stats.get("score") or stats.get("final_score"))
+                if key == "t1":
+                    t1_score = score
+                elif key == "t2":
+                    t2_score = score
+
+            round_stats = rnd.get("round_stats") or {}
+            if t1_score is None:
+                t1_score = _score_to_int(round_stats.get("Score 1") or round_stats.get("score1") or round_stats.get("Team 1 Score"))
+            if t2_score is None:
+                t2_score = _score_to_int(round_stats.get("Score 2") or round_stats.get("score2") or round_stats.get("Team 2 Score"))
+
+            completed = t1_score is not None and t2_score is not None
+            result.setdefault(map_name, []).append({
+                "t1": int(t1_score or 0),
+                "t2": int(t2_score or 0),
+                "completed": completed,
+            })
+
+        return result
 
     def _fetch_faceit_draft_maps(self, url: str) -> List[dict]:
         match_ids = self._extract_faceit_match_ids(url)
@@ -2719,9 +2772,22 @@ class TournamentApp(QMainWindow):
                     str((teams.get("faction1") or {}).get("faction_id") or "").strip().lower(): "t1",
                     str((teams.get("faction2") or {}).get("faction_id") or "").strip().lower(): "t2",
                 }
+                round_results = self._extract_faceit_round_results(data.get("rounds") or [], team_map)
+
                 voting_map = ((data.get("voting") or {}).get("map") or {})
                 draft = self._extract_faceit_vote_maps(voting_map, team_map)
                 if draft:
+                    for item in draft:
+                        action = (item.get("action") or "").strip().lower()
+                        if action not in {"pick", "decider"}:
+                            continue
+                        mname = (item.get("map") or "").strip()
+                        results = round_results.get(mname) or []
+                        if results:
+                            rr = results.pop(0)
+                            item["t1"] = int(rr.get("t1") or 0)
+                            item["t2"] = int(rr.get("t2") or 0)
+                            item["completed"] = bool(rr.get("completed", False))
                     return draft
 
                 rounds = data.get("rounds") or []
@@ -2730,7 +2796,16 @@ class TournamentApp(QMainWindow):
                     map_name = self._normalize_map_name(str((rnd.get("round_stats") or {}).get("Map") or ""))
                     if not map_name:
                         continue
-                    fallback.append({"map": map_name, "action": "Pick", "by": ""})
+                    rr_list = round_results.get(map_name) or []
+                    rr = rr_list.pop(0) if rr_list else {"t1": 0, "t2": 0, "completed": False}
+                    fallback.append({
+                        "map": map_name,
+                        "action": "Pick",
+                        "by": "",
+                        "t1": int(rr.get("t1") or 0),
+                        "t2": int(rr.get("t2") or 0),
+                        "completed": bool(rr.get("completed", False)),
+                    })
                 if fallback:
                     return fallback
             except Exception:
@@ -2767,9 +2842,10 @@ class TournamentApp(QMainWindow):
 
             by = (item.get("by") or "").strip().lower()
             mr.set_selected_draft_by(by if by in {"t1", "t2"} else "")
-            mr.t1score.setValue(0)
-            mr.t2score.setValue(0)
-            mr.completed.setChecked(False)
+
+            mr.t1score.setValue(int(item.get("t1") or 0))
+            mr.t2score.setValue(int(item.get("t2") or 0))
+            mr.completed.setChecked(bool(item.get("completed", False) and mr.allows_scores()))
             mr._update_score_enabled()
 
         self._autosave(self._collect_state())
