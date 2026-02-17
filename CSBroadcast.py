@@ -19,7 +19,6 @@ from PyQt5.QtWidgets import (
 # -----------------------------
 DEV_ASSET_DIRS = {
     "maps":      r"C:\CSBroadcat\Scoreboard\Maps",
-    "gametypes": r"C:\CSBroadcat\Scoreboard\Gametypes",
     "heroes":    r"C:\CSBroadcat\Scoreboard\Heroes",
 }
 
@@ -60,7 +59,6 @@ def _copy_tree_if_missing(src_dir: str, dst_dir: str):
 class Asset:
     name: str
     image_path: Optional[str] = None
-    mode: Optional[str] = None
     source_path: Optional[str] = None
 
 @dataclass
@@ -422,13 +420,12 @@ class BracketTeamsImportDialog(QDialog):
 # Asset Manager Dialog
 # -----------------------------
 class AssetManagerDialog(QDialog):
-    def __init__(self, parent, title: str, assets: Dict[str, Asset], mode_names: Optional[List[str]] = None):
+    def __init__(self, parent, title: str, assets: Dict[str, Asset]):
         super().__init__(parent)
         self._last_state_for_diff = None
         self.setWindowTitle(title)
         self.title = title
         self.assets = assets
-        self._mode_names = mode_names or []
 
         self.resize(700, 420)
 
@@ -442,13 +439,6 @@ class AssetManagerDialog(QDialog):
         form = QFormLayout()
         self.name_edit = QLineEdit()
         form.addRow("Name", self.name_edit)
-        self.mode_combo = None
-        if self.title == "Maps":
-            self.mode_combo = QComboBox()
-            for n in sorted(self._mode_names):
-                self.mode_combo.addItem(n)
-            form.addRow("Mode", self.mode_combo)
-
 
         logo_row = QHBoxLayout()
         self.logo_edit = QLineEdit(); self.logo_edit.setReadOnly(True)
@@ -493,10 +483,6 @@ class AssetManagerDialog(QDialog):
             p = asset.source_path or asset.image_path or ""
             self.logo_edit.setText(p)
             self._load_preview(p)
-            if self.title == "Maps" and self.mode_combo:
-                ix = self.mode_combo.findText(asset.mode or "", Qt.MatchExactly)
-                self.mode_combo.setCurrentIndex(ix if ix >= 0 else 0)
-
 
     def _browse_image(self):
         path, _ = QFileDialog.getOpenFileName(self, "Select image", "", "Images (*.png *.jpg *.jpeg *.webp)")
@@ -518,15 +504,10 @@ class AssetManagerDialog(QDialog):
         if not name:
             QMessageBox.warning(self, "Missing name", "Please enter a name.")
             return
-        mode = None
-        if self.title == "Maps" and self.mode_combo:
-            mode = self.mode_combo.currentText().strip()
         slug = TournamentApp._slugify(name)
 
         if self.title == "Heroes":
             rel_dir = os.path.join("Scoreboard", "Heroes")
-        elif self.title == "Game Modes":
-            rel_dir = os.path.join("Scoreboard", "Gametypes")
         else:
             rel_dir = os.path.join("Scoreboard", "Maps")
 
@@ -537,7 +518,6 @@ class AssetManagerDialog(QDialog):
         self.assets[name] = Asset(
             name=name,
             image_path=image_path,
-            mode=mode,
             source_path=source_path
         )
         self._reload()
@@ -558,8 +538,6 @@ class AssetManagerDialog(QDialog):
         try:
             if self.title == "Heroes":
                 category = "Heroes"
-            elif self.title in ("Game Modes", "Gametypes"):
-                category = "Gametypes"
             else:
                 category = "Maps"
 
@@ -1049,7 +1027,7 @@ def _app_base():
 
 def _ensure_scoreboard_tree(root):
     subdirs = [
-        "General", "Match", "Heroes", "Maps", "Gametypes",
+        "General", "Match", "Heroes", "Maps",
         "Replay", "Replay\\Playlist", "Roles", "Teams", "Temp", "Waiting",
         "Standings", "Bracket"
     ]
@@ -1352,7 +1330,7 @@ class DraftTab(QWidget):
         self.reload()
 
     def _iter_map_items(self):
-        """Iteroi vain kartta-childit (ei moodiotsikoita)."""
+        """Iteroi vain kartta-childit."""
         top_count = self.tree.topLevelItemCount()
         for i in range(top_count):
             parent = self.tree.topLevelItem(i)
@@ -1360,24 +1338,22 @@ class DraftTab(QWidget):
                 yield parent.child(j)
 
     def reload(self):
-        """Lataa kartat ryhmiteltynä pelimuodoittain. Säilyttää aiemmat valinnat."""
+        """Lataa kartat puuhun. Säilyttää aiemmat valinnat."""
         old_selected = set(self.get_pool())
         self.tree.blockSignals(True)
         self.tree.clear()
 
         data = self.get_maps_by_mode() or {}
-        for mode_name, maps in data.items():
-            if not maps:
-                continue
-            mode_item = QTreeWidgetItem([mode_name or "Unspecified"])
-            mode_item.setFlags(mode_item.flags() & ~Qt.ItemIsUserCheckable)
-            self.tree.addTopLevelItem(mode_item)
-            for name in sorted(maps):
-                it = QTreeWidgetItem([name])
-                it.setFlags(it.flags() | Qt.ItemIsUserCheckable)
-                checked = (name in old_selected) or (not old_selected)
-                it.setCheckState(0, Qt.Checked if checked else Qt.Unchecked)
-                mode_item.addChild(it)
+        maps = data.get("Maps", []) if isinstance(data, dict) else []
+        parent = QTreeWidgetItem(["Maps"])
+        parent.setFlags(parent.flags() & ~Qt.ItemIsUserCheckable)
+        self.tree.addTopLevelItem(parent)
+        for name in sorted(maps):
+            it = QTreeWidgetItem([name])
+            it.setFlags(it.flags() | Qt.ItemIsUserCheckable)
+            checked = (name in old_selected) or (not old_selected)
+            it.setCheckState(0, Qt.Checked if checked else Qt.Unchecked)
+            parent.addChild(it)
 
         self.tree.expandAll()
         self.tree.blockSignals(False)
@@ -2256,7 +2232,7 @@ class BracketTab(QWidget):
 
 class BulkImportRow(QWidget):
     """Yksi rivi import-listassa."""
-    def __init__(self, kind: str, file_path: str, name_guess: str, mode_names=None):
+    def __init__(self, kind: str, file_path: str, name_guess: str):
         super().__init__()
         self.kind = kind
         self.file_path = file_path
@@ -2275,35 +2251,25 @@ class BulkImportRow(QWidget):
         row.addWidget(QLabel("Name:"), 0)
         row.addWidget(self.name_edit, 2)
 
-        self.mode_combo = None
-        if kind == "Map":
-            self.mode_combo = QComboBox()
-            self.mode_combo.addItem("")
-            for m in sorted(mode_names or []):
-                self.mode_combo.addItem(m)
-            row.addWidget(QLabel("Mode:"))
-            row.addWidget(self.mode_combo, 1)
-
     def to_result(self):
         return {
             "enabled": self.chk.isChecked(),
             "kind": self.kind,
             "file_path": self.file_path,
             "name": self.name_edit.text().strip(),
-            "mode": self.mode_combo.currentText().strip() if self.mode_combo else None,
         }
 
 
 class BulkImportDialog(QDialog):
-    """Listaa kansioista löytyneet kuvat. Nimet ja (karttojen) moodit voi muokata ennen tallennusta."""
-    def __init__(self, parent, heroes_files: list, maps_files: list, mode_names: list):
+    """Listaa kansioista löytyneet kuvat. Nimiä voi muokata ennen tallennusta."""
+    def __init__(self, parent, heroes_files: list, maps_files: list):
         super().__init__(parent)
         self.setWindowTitle("Bulk Import from Folders")
         self.resize(820, 520)
 
         root = QVBoxLayout(self)
 
-        info = QLabel("Review detected assets. Edit names (and modes for maps) before importing.")
+        info = QLabel("Review detected assets. Edit names before importing.")
         root.addWidget(info)
 
         self.container = QVBoxLayout()
@@ -2322,7 +2288,7 @@ class BulkImportDialog(QDialog):
         if maps_files:
             self.container.addWidget(QLabel("Maps"))
             for p, name_guess in maps_files:
-                r = BulkImportRow("Map", p, name_guess, mode_names=mode_names)
+                r = BulkImportRow("Map", p, name_guess)
                 self.rows.append(r); self.container.addWidget(r)
 
         btns = QHBoxLayout()
@@ -2357,7 +2323,6 @@ class TournamentApp(QMainWindow):
 
         self.heroes: Dict[str, Asset] = {}
         self.maps: Dict[str, Asset] = {}
-        self.modes: Dict[str, Asset] = {}
 
         self._build_menubar()
 
@@ -2874,7 +2839,7 @@ class TournamentApp(QMainWindow):
         bundled = _bundled_scoreboard_dir()
         if not bundled:
             return
-        for sub in ("Maps", "Gametypes", "Heroes"):
+        for sub in ("Maps", "Heroes"):
             user_sub = os.path.join(user_root, sub)
             if os.path.isfile(os.path.join(user_sub, "index.json")):
                 continue
@@ -2883,7 +2848,6 @@ class TournamentApp(QMainWindow):
 
     def _auto_discover_assets(self):
         import os
-        import re
 
         def pick_dir(kind: str) -> str:
             dev = DEV_ASSET_DIRS.get(kind)
@@ -2891,7 +2855,7 @@ class TournamentApp(QMainWindow):
                 return dev
 
             b = _bundled_scoreboard_dir()
-            sub = "Gametypes" if kind == "gametypes" else kind.capitalize()
+            sub = kind.capitalize()
             if b:
                 cand = os.path.join(b, sub)
                 if os.path.isdir(cand):
@@ -2902,7 +2866,6 @@ class TournamentApp(QMainWindow):
 
         loaded_maps   = self._load_assets_from_index("Maps", self.maps)
         loaded_heroes = self._load_assets_from_index("Heroes", self.heroes)
-        loaded_modes  = self._load_assets_from_index("Gametypes", self.modes)
 
         if not loaded_heroes:
             heroes_dir = pick_dir("heroes")
@@ -2923,35 +2886,13 @@ class TournamentApp(QMainWindow):
                 self.maps[name] = Asset(
                     name=name,
                     image_path=os.path.join("Scoreboard", "Maps", f"{self._slugify(name)}.png"),
-                    mode=None,
                     source_path=p
                 )
-
-        if not loaded_modes:
-            modes_dir = pick_dir("gametypes")
-            mode_files = self._scan_image_files(modes_dir)
-            self.modes.clear()
-            if mode_files:
-                for p, name in mode_files:
-                    self.modes[name] = Asset(
-                        name=name,
-                        image_path=os.path.join("Scoreboard", "Gametypes", f"{self._slugify(name)}.png"),
-                        source_path=p
-                    )
-            else:
-                if os.path.isdir(modes_dir):
-                    for fn in sorted(os.listdir(modes_dir)):
-                        stem, ext = os.path.splitext(fn)
-                        if ext.lower() in {".txt", ".json"}:
-                            name = re.sub(r"[-_]+", " ", stem).strip().title()
-                            if name:
-                                self.modes[name] = Asset(name=name)
 
         self._on_assets_changed()
 
         self._export_assets_category("Heroes", self.heroes)
         self._export_assets_category("Maps", self.maps)
-        self._export_assets_category("Gametypes", self.modes)
 
     
     def _export_waiting(self, state: dict):
@@ -3192,9 +3133,7 @@ class TournamentApp(QMainWindow):
         existing_map_names = set(self.maps.keys())
         maps_files = [(p, n if n not in existing_map_names else n) for (p, n) in maps_files]
 
-        mode_names = list(self.modes.keys())
-
-        dlg = BulkImportDialog(self, heroes_files, maps_files, mode_names)
+        dlg = BulkImportDialog(self, heroes_files, maps_files)
         if dlg.exec_() != QDialog.Accepted:
             return
 
@@ -3218,11 +3157,9 @@ class TournamentApp(QMainWindow):
             else:
                 if name in self.maps:
                     continue
-                mode = (r.get("mode") or "").strip() or None
                 self.maps[name] = Asset(
                     name=name,
                     image_path=os.path.join("Scoreboard", "Maps", f"{self._slugify(name)}.png"),
-                    mode=mode,
                     source_path=r["file_path"]
                 )
                 added_m += 1
@@ -3271,27 +3208,12 @@ class TournamentApp(QMainWindow):
         teamsm.addAction(act_im_away)
 
     def _open_asset_manager(self, title: str, store: Dict[str, Asset], on_close):
-        dlg = AssetManagerDialog(self, title, store, mode_names=None)
+        dlg = AssetManagerDialog(self, title, store)
         dlg.exec_()
         on_close()
 
     def _maps_by_mode(self) -> dict:
-        """
-        Palauta OrderedDict/dict: mode -> [map-names].
-        Jos kartalla ei ole asetettua modea, laitetaan 'Unspecified' alle.
-        Moodien järjestys otetaan self.modes-assetlistasta, lopuksi lisätään Unspecified jos tarpeen.
-        """
-        from collections import OrderedDict
-        by_mode = OrderedDict()
-        for m in self.modes.keys():
-            by_mode[m] = []
-        by_mode.setdefault("Unspecified", [])
-        for name, asset in self.maps.items():
-            mode = (asset.mode or "").strip() or "Unspecified"
-            by_mode.setdefault(mode, [])
-            by_mode[mode].append(name)
-        cleaned = OrderedDict((k, v) for k, v in by_mode.items() if v)
-        return cleaned
+        return {"Maps": sorted(self.maps.keys())}
 
 
     def _on_assets_changed(self):
@@ -3593,10 +3515,8 @@ class TournamentApp(QMainWindow):
                 for k in od.keys():
                     a, b = od.get(k) or {}, nd.get(k) or {}
                     if (a.get("name") != b.get("name")) \
-                       or (a.get("image_path") != b.get("image_path")) \
-                       or (a.get("mode") != b.get("mode")):
+                       or (a.get("image_path") != b.get("image_path")):
                         changed = True
-
                         break
             if changed:
                 keys.append(f"assets.{cat}")
@@ -3687,7 +3607,7 @@ class TournamentApp(QMainWindow):
     def _load_assets_from_index(self, category: str, target_dict: dict) -> bool:
         """
         Lataa Scoreboard/<category>/index.json ja täyttää target_dict:
-        - category: "Maps" | "Heroes" | "Gametypes"
+        - category: "Maps" | "Heroes"
         Palauttaa True jos lataus onnistui, muuten False.
         """
         root = self._scoreboard_root()
@@ -3700,7 +3620,7 @@ class TournamentApp(QMainWindow):
             with open(p, "r", encoding="utf-8") as f:
                 data = json.load(f)
 
-            key = "maps" if category == "Maps" else "heroes" if category == "Heroes" else "modes"
+            key = "maps" if category == "Maps" else "heroes"
             rows = data.get(key, [])
             target_dict.clear()
 
@@ -3708,7 +3628,6 @@ class TournamentApp(QMainWindow):
                 name = (it.get("name") or "").strip()
                 img_rel = (it.get("image") or "").replace("/", os.sep)
                 img_abs = os.path.join(root, img_rel) if img_rel else None
-                mode = it.get("mode") if category == "Maps" else None
 
                 if not name:
                     continue
@@ -3716,7 +3635,6 @@ class TournamentApp(QMainWindow):
                 target_dict[name] = Asset(
                     name=name,
                     image_path=img_rel if img_rel else None,
-                    mode=mode,
                     source_path=img_abs if (img_abs and os.path.isfile(img_abs)) else None
                 )
             return True
@@ -3843,7 +3761,7 @@ class TournamentApp(QMainWindow):
             except Exception as e:
                 print(f"[Maps] copy failed {src} -> {out_png}: {e}")
 
-        if category_name in {"Maps", "Heroes", "Gametypes"}:
+        if category_name in {"Maps", "Heroes"}:
             items = []
             for name, asset in assets.items():
                 slug = self._slugify(name)
@@ -3851,16 +3769,10 @@ class TournamentApp(QMainWindow):
                 img_rel = _norm_rel(out_png, root)
 
                 item = {"name": name, "slug": slug, "image": img_rel}
-                if category_name == "Maps":
-                    item["mode"] = (asset.mode or "")
                 items.append(item)
 
             index_json_path = os.path.join(cat_dir, "index.json")
-            payload = (
-                {"maps": items} if category_name == "Maps" else
-                {"heroes": items} if category_name == "Heroes" else
-                {"modes": items}
-            )
+            payload = {"maps": items} if category_name == "Maps" else {"heroes": items}
             with open(index_json_path, "w", encoding="utf-8") as f:
                 json.dump(payload, f, ensure_ascii=False, indent=2)
 
@@ -3885,7 +3797,6 @@ class TournamentApp(QMainWindow):
     def _export_scoreboard(self, state: dict):
         self._export_assets_category("Heroes", self.heroes)
         self._export_assets_category("Maps", self.maps)
-        self._export_assets_category("Gametypes", self.modes)
 
         g = state.get("general") or {}
         settings = GeneralSettings(**g) if isinstance(g, dict) else GeneralSettings()
