@@ -2341,7 +2341,7 @@ class BulkImportDialog(QDialog):
 class TournamentApp(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("SOW Broadcast")
+        self.setWindowTitle("CSBroadcast")
         self.resize(1400, 860)
 
         app_dir = QStandardPaths.writableLocation(QStandardPaths.AppDataLocation)
@@ -3373,16 +3373,16 @@ class TournamentApp(QMainWindow):
         t.banned_hero = ""
 
         base_slug = self._slugify(t.name or "team")
-        default_json = os.path.join(self._teams_dir(), f"{base_slug}.sowteam.json")
+        default_json = os.path.join(self._teams_dir(), f"{base_slug}.csteam.json")
 
         path, _ = QFileDialog.getSaveFileName(
             self, "Export Team", default_json,
-            "SOW Team (*.sowteam.json);;JSON (*.json)"
+            "CS Team (*.csteam.json);;JSON (*.json)"
         )
         if not path:
             return
         if not path.lower().endswith(".json"):
-            path += ".sowteam.json"
+            path += ".csteam.json"
 
         out_dir = os.path.dirname(path)
 
@@ -3419,7 +3419,7 @@ class TournamentApp(QMainWindow):
         """Lataa yhden tiimin. Ei ylikirjoita scorea eikä bännättyä hero a."""
         start = self._teams_dir()
         path, _ = QFileDialog.getOpenFileName(self, "Import Team", start,
-                                              "SOW Team (*.json *.json);;All files (*.*)")
+                                              "CS Team (*.csteam.json *.json);;All files (*.*)")
         if not path:
             return
         try:
@@ -4463,7 +4463,7 @@ class TournamentApp(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(
             self, "Load state",
             start,
-            "SOW Broadcast (*.sowbroadcast.json);;JSON (*.json);;All files (*.*)"
+            "CSBroadcast (*.csbroadcast.json);;JSON (*.json);;All files (*.*)"
         )
         if not path:
             return
