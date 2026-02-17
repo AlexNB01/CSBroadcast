@@ -477,7 +477,7 @@ class AssetManagerDialog(QDialog):
         name = items[0].text()
         asset = self.assets.get(name)
         if asset:
-            p = asset.source_path or asset.image_path or ""
+            p = asset.image_path or asset.source_path or ""
             self.logo_edit.setText(p)
             self._load_preview(p)
 
@@ -504,16 +504,36 @@ class AssetManagerDialog(QDialog):
         slug = TournamentApp._slugify(name)
 
         rel_dir = os.path.join("Scoreboard", "Maps")
-
         image_path = os.path.join(rel_dir, f"{slug}.png")
 
         source_path = self.logo_edit.text().strip() or None
+
+        out_abs = os.path.join(self.parent()._scoreboard_root(), "Maps", f"{slug}.png")
+        os.makedirs(os.path.dirname(out_abs), exist_ok=True)
+
+        if source_path and os.path.isfile(source_path):
+            try:
+                pix = QPixmap(source_path)
+                if not pix.isNull():
+                    pix.save(out_abs, "PNG")
+                else:
+                    shutil.copy2(source_path, out_abs)
+                source_path = out_abs
+            except Exception:
+                source_path = source_path
+        elif os.path.isfile(out_abs):
+            source_path = out_abs
 
         self.assets[name] = Asset(
             name=name,
             image_path=image_path,
             source_path=source_path
         )
+
+        shown_path = source_path or out_abs
+        self.logo_edit.setText(shown_path)
+        self._load_preview(shown_path)
+
         self._reload()
         matches = self.listw.findItems(name, Qt.MatchExactly)
         if matches:
