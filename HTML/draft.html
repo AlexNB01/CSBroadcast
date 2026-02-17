@@ -75,60 +75,40 @@
   width:1920px; bottom:20px;
   display:grid;
   grid-auto-flow:column;
-  grid-template-columns: repeat(auto-fit, minmax(0,1fr));
-  gap:16px; padding:0 24px; box-sizing:border-box;
+  grid-auto-columns:minmax(0,1fr);
+  gap:14px; padding:18px 24px 0; box-sizing:border-box;
   margin-top:20px;
 }
 
-  .col{ display:flex; flex-direction:column; gap:12px; }
-.mode-header {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  padding: 8px 0;
-  color: var(--primary);
-  font-size: 22px;
-  letter-spacing: .5px;
-  text-shadow: 0 0 6px rgba(0,0,0,.35);
-  text-align: center;
-
-  background: #1e2b38;
-  border-top: 2px solid #0f1a24;
-  border-bottom: 2px solid #0f1a24;
-  position: relative;
-}
-
-.mode-column {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  border-left: 2px solid #1db954;
-}
-
-.mode-column:first-child {
-  border-left: none;
-}
-
-.mode-header img {
-  height: 26px;
-  filter: drop-shadow(0 0 6px rgba(0,0,0,.5));
+.draft-col{
+  display:flex;
+  flex-direction:column;
+  min-width:0;
 }
 
 .map-card{
   position:relative;
-  height:var(--card-h, 200px);
-  border-radius:var(--radius);
+  flex:1 1 auto;
+  min-height:0;
+  border-radius:0;
   background-size:cover;
   background-position:center;
   box-shadow:var(--shadow);
-
   overflow:hidden;                 
   background-clip:padding-box;     
   isolation:isolate;               
-
 }
+
+.map-card::after{
+  content:"";
+  position:absolute;
+  inset:0;
+  background:rgba(45, 17, 98, .45);
+  pointer-events:none;
+}
+
+.map-card.pick::after{ background:rgba(58, 58, 144, .35); }
+.map-card.decider::after{ background:rgba(15, 17, 20, .15); }
 
 .map-card.winner-t1::before,
 .map-card.winner-t2::before{
@@ -148,19 +128,11 @@
   display:flex; align-items:center; justify-content:center; pointer-events:none;
 }
 
-.map-card .map-name{
-  position:absolute; left:0; right:0; bottom:0;
-  background:rgba(0,0,0,.70);
-  color:#fff; padding:10px 16px;
-  border-radius:0 0 calc(var(--radius) - 4px) calc(var(--radius) - 4px);
-  font-size:22px; font-weight:900; text-align:center;
-  letter-spacing:.4px; text-shadow:0 0 6px rgba(0,0,0,.8);
-}
-
-  .winner-center{
+.winner-center{
     position:absolute; inset:0;
     display:flex; align-items:center; justify-content:center;
     pointer-events:none;
+    z-index:2;
   }
   .winner-center img{
     width:60%; max-width:320px; max-height:70%; margin-bottom:50px;
@@ -168,23 +140,48 @@
     opacity:.95;
   }
 
-  .badge{
-    position:absolute; display:flex; align-items:center; gap:8px;
-    padding:0; margin:0; border:0;
-    pointer-events:none;
-  }
-  .badge.pick{
-    bottom:56px; left:50%; transform:translateX(-50%);
-    background:#ffffff; color:#111; border-radius:12px;
-    padding:8px 8px; gap:8px; box-shadow:0 6px 16px rgba(0,0,0,.35);
-    font-weight:900;
-  }
-  .badge.pick img{ width:30px; height:30px; border-radius:4px; }
+.action-logo{
+  width:56%;
+  max-width:260px;
+  max-height:52%;
+  object-fit:contain;
+  filter:drop-shadow(0 10px 20px rgba(0,0,0,.6));
+  opacity:.96;
+  z-index:2;
+}
 
-  .map-card.picked-t1{ border-color:var(--t1); box-shadow:0 10px 26px rgba(0,0,0,.35); }
-  .map-card.picked-t2{ border-color:var(--t2); box-shadow:0 10px 26px rgba(0,0,0,.35); }
-  .map-card.picked-t1 .map-name{ background:rgba(var(--t1-rgb), .85); }
-  .map-card.picked-t2 .map-name{ background:rgba(var(--t2-rgb), .85); }
+.card-meta{
+  display:flex;
+  flex-direction:column;
+  z-index:3;
+}
+
+.action-tag,
+.map-name{
+  text-align:center;
+  font-weight:900;
+  letter-spacing:.8px;
+  line-height:1;
+}
+
+.action-tag{
+  color:#ff315f;
+  background:#24195c;
+  font-size:48px;
+  padding:10px 10px;
+}
+
+.map-name{
+  color:#a4a4b3;
+  background:#f0f0f2;
+  font-size:52px;
+  padding:10px 10px;
+}
+
+.map-card.pick + .card-meta .action-tag,
+.map-card.decider + .card-meta .action-tag{
+  color:#f5f6ff;
+}
 
   .empty-note{ grid-column:1 / -1; color:#ddd; font-size:22px; opacity:.9; margin:16px 8px; }
   
@@ -453,139 +450,81 @@ function toggleScoreBoxes(){
 /* ----- Draft rendering ----- */
 async function renderDraft(){
   const state = await readJSON(MATCH + "/match.json");
-
-  const T1A = (state.team1?.abbr || state.team1?.name || "T1").toUpperCase();
-  const T2A = (state.team2?.abbr || state.team2?.name || "T2").toUpperCase();
-
-  const files = (await read(MATCH + "/maps.txt")).split(/\r?\n/).filter(Boolean);
-
   const mapsManifest  = await readJSON(SB + "/Maps/index.json");
-  const modesManifest = await readJSON(SB + "/Gametypes/index.json");
   const mapsBySlug = bySlug(mapsManifest.maps || []);
-  const modes = (modesManifest.modes || []).slice().sort((a,b)=>(a.name||"").localeCompare(b.name||""));
-
-  const played  = new Set((state.maps||[]).filter(m => m.completed).map(m => m.map));
-  const winners = Object.fromEntries((state.maps||[]).map(m => [m.map, (""+m.winner).toLowerCase()]));
-  const picksRaw= Object.fromEntries((state.maps||[]).map(m => [m.map, (m.pick||"")]));
-  const picks   = {};
-  Object.keys(picksRaw).forEach(k=>{
-    let v = (""+picksRaw[k]).toUpperCase();
-    if(v==="TEAM 1") v="T1"; if(v==="TEAM 2") v="T2";
-    picks[k]=v;
-  });
-  
-const pickedByMode = {};
-(state.maps || []).forEach(m => {
-  const hasPick = ("" + (m.pick || "")).trim() !== "";
-  if (!hasPick) return;
-  const mk = ((m.mode || (mapsBySlug[nameToSlug(m.map)]?.mode) || "") + "").toLowerCase();
-  if (mk) pickedByMode[mk] = nameToSlug(m.map);
-});
-
-const ci = Number(state.current || 0) - 1;
-if (ci >= 0 && (state.maps || [])[ci]) {
-  const cur = state.maps[ci];
-  if (!cur.completed) {
-    const mk = ((cur.mode || (mapsBySlug[nameToSlug(cur.map)]?.mode) || "") + "").toLowerCase();
-    if (mk && !pickedByMode[mk]) pickedByMode[mk] = nameToSlug(cur.map);
-  }
-}
-
-  const completed = new Set((state.maps||[]).filter(m=>m.completed).map(m=>{
-    const meta = mapsBySlug[nameToSlug(m.map)];
-    return ((m.mode || (meta?.mode) || "") + "").toLowerCase();
-  }));
-  const allModeKeys = modes.map(m=>(m.name||"").toLowerCase());
-  const available = (completed.size===modes.length)
-      ? new Set(allModeKeys)
-      : new Set(allModeKeys.filter(x=>!completed.has(x)));
 
   const root = document.getElementById("draftArea");
-  root.style.gridTemplateColumns = `repeat(${Math.max(1, modes.length)}, 1fr)`;
   root.innerHTML = "";
 
-  modes.forEach(mm=>{
-    const modeKey=(mm.name||"").toLowerCase();
-    const col=document.createElement("div"); col.className="col";
+  const maps = (state.maps || []).filter(m => (m.map || "").trim());
+  if(!maps.length){
+    root.innerHTML = '<div class="empty-note">Ei valittuja karttoja.</div>';
+    return;
+  }
 
-    const h=document.createElement("div"); h.className="mode-header";
-    if(mm.slug){ const i=document.createElement("img"); i.src=`${SB}/Gametypes/${mm.slug}.png?_=${Date.now()}`; i.alt=mm.name; h.appendChild(i); }
-    const lbl=document.createElement("div"); lbl.textContent=(mm.name||modeKey).toUpperCase();
-    h.appendChild(lbl);
-    col.appendChild(h);
+  const undecided = maps
+    .map((m, idx) => ({ idx, pick: ((m.pick || "") + "").trim().toUpperCase() }))
+    .filter(x => !(x.pick === "T1" || x.pick === "T2" || x.pick === "TEAM 1" || x.pick === "TEAM 2"));
+  const deciderIdx = undecided.length ? undecided[undecided.length - 1].idx : -1;
 
-    files.forEach(file=>{
-      const slug=file.replace(/\.(png|jpg|jpeg|webp)$/i,"");
-      const meta=mapsBySlug[slug]; if(!meta) return;
-      if((meta.mode||"").toLowerCase()!==modeKey) return;
+  root.style.gridTemplateColumns = `repeat(${maps.length}, minmax(0, 1fr))`;
 
-      const card=document.createElement("div");
-      card.className="map-card";
-      card.style.backgroundImage=`url('${SB}/Maps/${file}?_=${Date.now()}')`;
-      card.innerHTML=`<div class="map-name">${meta.name}</div>`;
+  maps.forEach((m, idx)=>{
+    const col = document.createElement("div");
+    col.className = "draft-col";
 
-		const thisSlug = slug;
+    const mapName = (m.map || "").trim();
+    const meta = mapsBySlug[nameToSlug(mapName)] || {};
+    const mapFile = meta.slug ? `${meta.slug}.jpg` : `${nameToSlug(mapName)}.jpg`;
 
-		let disable = false;
+    const pickRaw = ((m.pick || "") + "").trim().toUpperCase();
+    let pick = pickRaw;
+    if (pick === "TEAM 1") pick = "T1";
+    if (pick === "TEAM 2") pick = "T2";
 
-		if (!played.has(meta.name)) {
-		  const pickedSlugInThisMode = pickedByMode[modeKey];
-		  const isPickedHere = pickedSlugInThisMode && pickedSlugInThisMode === thisSlug;
+    const action = idx === deciderIdx ? "DECIDER" : (pick === "T1" || pick === "T2" ? "PICK" : "BAN");
+    const card = document.createElement("div");
+    card.className = `map-card ${action.toLowerCase()}`;
+    card.style.backgroundImage = `url('${SB}/Maps/${mapFile}?_=${Date.now()}')`;
 
-		  if (pickedSlugInThisMode) {
-			disable = !isPickedHere;
-		  } else {
-			disable = !available.has(modeKey);
-		  }
-		}
+    const winner = ((m.winner || "") + "").toLowerCase();
+    const logoTeam = action === "PICK" ? pick : (action === "BAN" ? ((idx % 2 === 0) ? "T1" : "T2") : "");
 
-		if (disable) card.classList.add("disabled");
+    if (winner === "t1" || winner === "t2") {
+      const rgbVar = getComputedStyle(document.documentElement)
+        .getPropertyValue(winner === "t1" ? "--t1-rgb" : "--t2-rgb").trim() || "255,255,255";
+      card.style.setProperty("--winner-rgb", rgbVar);
+      card.classList.add(winner === "t1" ? "winner-t1" : "winner-t2");
+    }
 
-      const w = winners[meta.name];
-      if(w==="t1" || w==="t2"){
-        const rgbVar = getComputedStyle(document.documentElement)
-                         .getPropertyValue(w==="t1" ? "--t1-rgb" : "--t2-rgb").trim() || "255,255,255";
-        card.style.setProperty("--winner-rgb", rgbVar);
+    const center = document.createElement("div");
+    center.className = "winner-center";
 
-        const center = document.createElement("div");
-        center.className = "winner-center";
-        const img = document.createElement("img");
-        img.src = `${MATCH}/${w.toUpperCase()}Logo.png?_=${Date.now()}`;
-        img.alt = w.toUpperCase();
-        center.appendChild(img);
-        card.appendChild(center);
+    if (winner === "t1" || winner === "t2") {
+      const img = document.createElement("img");
+      img.src = `${MATCH}/${winner.toUpperCase()}Logo.png?_=${Date.now()}`;
+      img.alt = winner.toUpperCase();
+      center.appendChild(img);
+    } else if (logoTeam) {
+      const img = document.createElement("img");
+      img.className = "action-logo";
+      img.src = `${MATCH}/${logoTeam}Logo.png?_=${Date.now()}`;
+      img.alt = logoTeam;
+      center.appendChild(img);
+    }
 
-        card.classList.add(w==="t1" ? "winner-t1" : "winner-t2");
-      }
+    card.appendChild(center);
 
-      const p = (picks[meta.name]||"").toUpperCase();
-      if((p==="T1" || p==="T2") && !(w==="t1" || w==="t2")){
-        const b=document.createElement("div");
-        b.className="badge pick";
-        const img=document.createElement("img");
-        img.src=`${MATCH}/${p}Logo.png?_=${Date.now()}`;
-        img.alt=p;
-        b.appendChild(img);
-        const txt=document.createElement("span");
-        const abbr = p==="T1" ? T1A : T2A;
-        txt.textContent = `${abbr} PICK`;
-        b.appendChild(txt);
-        card.appendChild(b);
+    const metaEl = document.createElement("div");
+    metaEl.className = "card-meta";
+    metaEl.innerHTML = `<div class="action-tag">${action}</div><div class="map-name">${mapName.toUpperCase()}</div>`;
 
-        card.classList.add(p==="T1" ? "picked-t1" : "picked-t2");
-      }
-
-      col.appendChild(card);
-    });
-	const count = col.querySelectorAll('.map-card').length;
-	const GAP = 12;
-	const BASE = 200;
-	const TOTAL = 3*BASE + 2*GAP;
-	const perCard = count > 0 ? (TOTAL - (count-1)*GAP) / count : BASE;
-	col.style.setProperty('--card-h', `${Math.max(120, perCard)}px`);
+    col.appendChild(card);
+    col.appendChild(metaEl);
     root.appendChild(col);
   });
 }
+
 
 let _prevSig=null;
 async function tick(){

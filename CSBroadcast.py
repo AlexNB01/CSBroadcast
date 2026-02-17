@@ -18,7 +18,7 @@ from PyQt5.QtWidgets import (
 # Data models
 # -----------------------------
 DEV_ASSET_DIRS = {
-    "maps":      r"C:\CSBroadcat\Scoreboard\Maps",
+    "maps":      os.path.join("Scoreboard", "Maps"),
 }
 
 def _bundled_scoreboard_dir():
@@ -477,7 +477,7 @@ class AssetManagerDialog(QDialog):
         name = items[0].text()
         asset = self.assets.get(name)
         if asset:
-            p = asset.source_path or asset.image_path or ""
+            p = asset.image_path or asset.source_path or ""
             self.logo_edit.setText(p)
             self._load_preview(p)
 
@@ -504,16 +504,36 @@ class AssetManagerDialog(QDialog):
         slug = TournamentApp._slugify(name)
 
         rel_dir = os.path.join("Scoreboard", "Maps")
-
         image_path = os.path.join(rel_dir, f"{slug}.png")
 
         source_path = self.logo_edit.text().strip() or None
+
+        out_abs = os.path.join(self.parent()._scoreboard_root(), "Maps", f"{slug}.png")
+        os.makedirs(os.path.dirname(out_abs), exist_ok=True)
+
+        if source_path and os.path.isfile(source_path):
+            try:
+                pix = QPixmap(source_path)
+                if not pix.isNull():
+                    pix.save(out_abs, "PNG")
+                else:
+                    shutil.copy2(source_path, out_abs)
+                source_path = out_abs
+            except Exception:
+                source_path = source_path
+        elif os.path.isfile(out_abs):
+            source_path = out_abs
 
         self.assets[name] = Asset(
             name=name,
             image_path=image_path,
             source_path=source_path
         )
+
+        shown_path = source_path or out_abs
+        self.logo_edit.setText(shown_path)
+        self._load_preview(shown_path)
+
         self._reload()
         matches = self.listw.findItems(name, Qt.MatchExactly)
         if matches:
@@ -828,6 +848,7 @@ class GeneralTab(QWidget):
         bo_lay.addWidget(self.maps_count)
         bo_lay.addStretch(1)
         root.addWidget(bo_box)
+
 
         people_box = QGroupBox("Casters & Host")
         people = QGridLayout(people_box)
@@ -2336,15 +2357,9 @@ class TournamentApp(QMainWindow):
             maps_layout.addWidget(mr)
         self._refresh_map_row_team_labels()
 
-        current_row = QHBoxLayout()
-        current_row.addWidget(QLabel("Current:"))
-        self.current_map_buttons: List[QRadioButton] = []
-        for i in range(1, 8):
-            rb = QRadioButton(str(i))
-            self.current_map_buttons.append(rb)
-            current_row.addWidget(rb)
-        current_row.addStretch()
-        maps_layout.addLayout(current_row)
+        self.import_faceit_btn = QPushButton("Import maps from FACEIT")
+        self.import_faceit_btn.clicked.connect(self._import_maps_from_faceit)
+        maps_layout.addWidget(self.import_faceit_btn)
 
         match_root.addWidget(maps_box, 4)
 
@@ -2614,6 +2629,301 @@ class TournamentApp(QMainWindow):
         self._set_match_map_checks(names, checked=True)
         self.faceit_stats_source.setCurrentText("Match")
         self._set_statistics_match_maps_visibility()
+
+    def _normalize_team_name_key(self, value: str) -> str:
+        text = (value or "").strip().lower()
+        text = re.sub(r"[^a-z0-9]+", "", text)
+        return text
+
+    def _build_faceit_team_key_map(self, teams: dict) -> Dict[str, str]:
+        gui_t1 = self._normalize_team_name_key(self.team1_panel.team_name.text())
+        gui_t2 = self._normalize_team_name_key(self.team2_panel.team_name.text())
+
+        f1 = teams.get("faction1") or {}
+        f2 = teams.get("faction2") or {}
+
+        def _aliases(team_obj: dict) -> List[str]:
+            vals = [
+                team_obj.get("faction_id"),
+                team_obj.get("team_id"),
+                team_obj.get("id"),
+                team_obj.get("name"),
+                team_obj.get("nickname"),
+                team_obj.get("leader"),
+            ]
+            out = []
+            for v in vals:
+                raw = str(v or "").strip()
+                if raw:
+                    out.append(raw)
+            return out
+
+        a1 = _aliases(f1)
+        a2 = _aliases(f2)
+        n1 = {self._normalize_team_name_key(x) for x in a1 if self._normalize_team_name_key(x)}
+        n2 = {self._normalize_team_name_key(x) for x in a2 if self._normalize_team_name_key(x)}
+
+        # Match GUI teams to FACEIT factions using names; fallback to slot order.
+        f1_key, f2_key = "t1", "t2"
+        if gui_t1 and gui_t2:
+            if gui_t1 in n2 and gui_t2 in n1:
+                f1_key, f2_key = "t2", "t1"
+            elif gui_t1 in n1 and gui_t2 in n2:
+                f1_key, f2_key = "t1", "t2"
+
+        mapping: Dict[str, str] = {}
+
+        def _set_aliases(values: List[str], key: str):
+            for raw in values:
+                v = str(raw or "").strip().lower()
+                if not v:
+                    continue
+                mapping[v] = key
+                norm = self._normalize_team_name_key(v)
+                if norm:
+                    mapping[norm] = key
+
+        _set_aliases(a1, f1_key)
+        _set_aliases(a2, f2_key)
+
+        mapping["faction1"] = f1_key
+        mapping["faction2"] = f2_key
+        mapping["team1"] = "t1"
+        mapping["team2"] = "t2"
+        mapping["t1"] = "t1"
+        mapping["t2"] = "t2"
+        return mapping
+
+    def _extract_faceit_vote_maps(self, voting_map: dict, team_map: Dict[str, str]) -> List[dict]:
+        out: List[dict] = []
+
+        def _team_key(raw) -> str:
+            v = str(raw or "").strip().lower()
+            if not v:
+                return ""
+            if v in {"t1", "team1", "faction1"}:
+                return team_map.get(v, "t1")
+            if v in {"t2", "team2", "faction2"}:
+                return team_map.get(v, "t2")
+            if v in team_map:
+                return team_map.get(v, "")
+            return team_map.get(self._normalize_team_name_key(v), "")
+
+        def _map_name(raw) -> str:
+            if isinstance(raw, dict):
+                for k in ("map", "value", "name", "map_name"):
+                    if raw.get(k):
+                        return self._normalize_map_name(str(raw.get(k)))
+                return ""
+            return self._normalize_map_name(str(raw))
+
+        def _append(action_label: str, map_value, by_value=""):
+            mname = _map_name(map_value)
+            if not mname:
+                return
+            out.append({
+                "map": mname,
+                "action": action_label,
+                "by": _team_key(by_value),
+                "t1": 0,
+                "t2": 0,
+                "completed": False,
+            })
+
+        def _extract(action_label: str, raw):
+            if not raw:
+                return
+            if isinstance(raw, list):
+                for item in raw:
+                    if isinstance(item, dict):
+                        _append(action_label, item, item.get("team") or item.get("team_id") or item.get("faction") or item.get("guid") or item.get("by") or item.get("name"))
+                    else:
+                        _append(action_label, item)
+                return
+            if isinstance(raw, dict):
+                for k, v in raw.items():
+                    if isinstance(v, list):
+                        for item in v:
+                            _append(action_label, item, k)
+                    elif isinstance(v, dict):
+                        _append(action_label, v, v.get("team") or v.get("team_id") or v.get("faction") or v.get("guid") or v.get("by") or k)
+                    else:
+                        _append(action_label, v, k)
+                return
+            _append(action_label, raw)
+
+        _extract("Ban", voting_map.get("remove") or voting_map.get("ban") or voting_map.get("drop") or [])
+        _extract("Pick", voting_map.get("pick") or voting_map.get("picked") or [])
+        _extract("Decider", voting_map.get("decider") or voting_map.get("left") or voting_map.get("remaining") or voting_map.get("remain") or [])
+
+        clean: List[dict] = []
+        seen = set()
+        for item in out:
+            key = (item.get("map"), item.get("action"), item.get("by"))
+            if key in seen:
+                continue
+            seen.add(key)
+            clean.append(item)
+        return clean
+
+    def _extract_faceit_round_results(self, rounds: List[dict], team_map: Dict[str, str]) -> Dict[str, List[dict]]:
+        result: Dict[str, List[dict]] = {}
+
+        def _score_to_int(value) -> Optional[int]:
+            text = str(value or "").strip()
+            if not text:
+                return None
+            m = re.search(r"-?\d+", text)
+            if not m:
+                return None
+            try:
+                return int(m.group(0))
+            except Exception:
+                return None
+
+        for rnd in (rounds or []):
+            map_name = self._normalize_map_name(str((rnd.get("round_stats") or {}).get("Map") or ""))
+            if not map_name:
+                continue
+
+            t1_score = None
+            t2_score = None
+            teams = rnd.get("teams") or rnd.get("results") or []
+            if isinstance(teams, dict):
+                teams = list(teams.values())
+
+            for team_item in teams:
+                if not isinstance(team_item, dict):
+                    continue
+                tid = str(team_item.get("team_id") or team_item.get("faction_id") or team_item.get("id") or team_item.get("faction") or team_item.get("name") or "").strip().lower()
+                key = team_map.get(tid, "") or team_map.get(self._normalize_team_name_key(tid), "")
+                stats = team_item.get("team_stats") or team_item.get("stats") or team_item
+                score = _score_to_int(
+                    stats.get("Final Score") if isinstance(stats, dict) else None
+                )
+                if score is None and isinstance(stats, dict):
+                    score = _score_to_int(stats.get("Score") or stats.get("score") or stats.get("final_score"))
+                if key == "t1":
+                    t1_score = score
+                elif key == "t2":
+                    t2_score = score
+
+            round_stats = rnd.get("round_stats") or {}
+            if t1_score is None:
+                t1_score = _score_to_int(round_stats.get("Score 1") or round_stats.get("score1") or round_stats.get("Team 1 Score"))
+            if t2_score is None:
+                t2_score = _score_to_int(round_stats.get("Score 2") or round_stats.get("score2") or round_stats.get("Team 2 Score"))
+
+            completed = t1_score is not None and t2_score is not None
+            result.setdefault(map_name, []).append({
+                "t1": int(t1_score or 0),
+                "t2": int(t2_score or 0),
+                "completed": completed,
+            })
+
+        return result
+
+    def _fetch_faceit_draft_maps(self, url: str) -> List[dict]:
+        match_ids = self._extract_faceit_match_ids(url)
+        api_key = (self.faceit_api_key.text() or "").strip()
+        if not match_ids:
+            return []
+
+        import urllib.request, urllib.error, json
+
+        for match_id in match_ids:
+            headers = {}
+            if api_key:
+                headers["Authorization"] = f"Bearer {api_key}"
+            try:
+                req = urllib.request.Request(
+                    f"https://open.faceit.com/data/v4/matches/{match_id}",
+                    headers=headers,
+                )
+                with urllib.request.urlopen(req, timeout=8.0) as resp:
+                    data = json.loads(resp.read().decode("utf-8", errors="ignore"))
+
+                teams = data.get("teams") or {}
+                team_map = self._build_faceit_team_key_map(teams)
+                round_results = self._extract_faceit_round_results(data.get("rounds") or [], team_map)
+
+                voting_map = ((data.get("voting") or {}).get("map") or {})
+                draft = self._extract_faceit_vote_maps(voting_map, team_map)
+                if draft:
+                    for item in draft:
+                        action = (item.get("action") or "").strip().lower()
+                        if action not in {"pick", "decider"}:
+                            continue
+                        mname = (item.get("map") or "").strip()
+                        results = round_results.get(mname) or []
+                        if results:
+                            rr = results.pop(0)
+                            item["t1"] = int(rr.get("t1") or 0)
+                            item["t2"] = int(rr.get("t2") or 0)
+                            item["completed"] = bool(rr.get("completed", False))
+                    return draft
+
+                rounds = data.get("rounds") or []
+                fallback = []
+                for rnd in rounds:
+                    map_name = self._normalize_map_name(str((rnd.get("round_stats") or {}).get("Map") or ""))
+                    if not map_name:
+                        continue
+                    rr_list = round_results.get(map_name) or []
+                    rr = rr_list.pop(0) if rr_list else {"t1": 0, "t2": 0, "completed": False}
+                    fallback.append({
+                        "map": map_name,
+                        "action": "Pick",
+                        "by": "",
+                        "t1": int(rr.get("t1") or 0),
+                        "t2": int(rr.get("t2") or 0),
+                        "completed": bool(rr.get("completed", False)),
+                    })
+                if fallback:
+                    return fallback
+            except Exception:
+                continue
+        return []
+
+    def _import_maps_from_faceit(self):
+        url = (self.faceit_match_page.text() or "").strip()
+        if not url:
+            QMessageBox.warning(self, "FACEIT import", "Aseta ensin ottelun FACEIT-linkki Statistics-välilehdellä (Match page).")
+            return
+
+        draft_maps = self._fetch_faceit_draft_maps(url)
+        if not draft_maps:
+            QMessageBox.warning(self, "FACEIT import", "Karttoja ei saatu haettua FACEIT-linkistä.")
+            return
+
+        for mr in self.map_rows:
+            mr.reset()
+
+        for idx, item in enumerate(draft_maps[:len(self.map_rows)], start=1):
+            mr = self.map_rows[idx - 1]
+            map_name = (item.get("map") or "").strip()
+            if map_name:
+                map_ix = mr.map_combo.findText(map_name)
+                if map_ix < 0:
+                    mr.map_combo.addItem(map_name)
+                    map_ix = mr.map_combo.findText(map_name)
+                mr.map_combo.setCurrentIndex(map_ix if map_ix >= 0 else 0)
+
+            action = (item.get("action") or "").strip()
+            action_ix = mr.draft_action.findText(action if action else "—")
+            mr.draft_action.setCurrentIndex(action_ix if action_ix >= 0 else 0)
+
+            by = (item.get("by") or "").strip().lower()
+            mr.set_selected_draft_by(by if by in {"t1", "t2"} else "")
+
+            mr.t1score.setValue(int(item.get("t1") or 0))
+            mr.t2score.setValue(int(item.get("t2") or 0))
+            mr.completed.setChecked(bool(item.get("completed", False) and mr.allows_scores()))
+            mr._update_score_enabled()
+
+        self._autosave(self._collect_state())
+        self._update()
+        QMessageBox.information(self, "FACEIT import", f"Tuotiin {min(len(draft_maps), len(self.map_rows))} karttaa FACEITista.")
 
     def _parse_faceit_stat_number(self, value):
         if value is None:
@@ -3849,8 +4159,6 @@ class TournamentApp(QMainWindow):
         self._reset_statistics_tab()
         self.team1_panel.color_hex = "#55aaff"; self.team1_panel._apply_color_style()
         self.team2_panel.color_hex = "#ff557f"; self.team2_panel._apply_color_style()
-        for i, rb in enumerate(self.current_map_buttons, start=1):
-            rb.setChecked(i == 1)
         for mr in self.map_rows:
             mr.reset()
         self._autosave(self._collect_state())
@@ -3896,18 +4204,30 @@ class TournamentApp(QMainWindow):
 
 
 
+    def _first_uncompleted_pick_or_decider(self, maps: List[dict]) -> Optional[int]:
+        for item in maps or []:
+            action = (item.get("draft_action") or "").strip().lower()
+            if action not in {"pick", "decider"}:
+                continue
+            if bool(item.get("completed", False)):
+                continue
+            if not (item.get("map") or "").strip():
+                continue
+            try:
+                idx = int(item.get("index") or 0)
+            except (TypeError, ValueError):
+                idx = 0
+            if idx > 0:
+                return idx
+        return None
+
+
     # ---------------------
     # Update: export JSON for persistence/OBS & autosave
     # ---------------------
     def _collect_state(self):
         t1 = self.team1_panel.to_team()
         t2 = self.team2_panel.to_team()
-
-        current_ix = None
-        for i, rb in enumerate(self.current_map_buttons, start=1):
-            if rb.isChecked():
-                current_ix = i
-                break
 
         maps = []
         for idx, mr in enumerate(self.map_rows, start=1):
@@ -3934,6 +4254,8 @@ class TournamentApp(QMainWindow):
         selected_maps = [(cb.text() or "").strip() for cb in self.faceit_match_map_checks if cb.isChecked() and (cb.text() or "").strip()]
         source_text = (self.faceit_stats_source.currentText() or "Tournament").strip().lower()
         source_key = "match" if source_text == "match" else "tournament"
+
+        current_ix = self._first_uncompleted_pick_or_decider(maps)
 
         state = {
             "team1": asdict(t1),
@@ -4049,10 +4371,6 @@ class TournamentApp(QMainWindow):
                 mr.completed.setChecked(bool(item.get("completed", False)))
                 mr._update_score_enabled()
 
-
-        cur = state.get("current_map")
-        for i, rb in enumerate(self.current_map_buttons, start=1):
-            rb.setChecked(i == cur)
         
         gdata = state.get("general", {})
         self.general_tab.from_settings(GeneralSettings(**gdata))
