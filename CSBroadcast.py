@@ -1416,6 +1416,7 @@ class DraftTab(QWidget):
 
 class StandingsTab(QWidget):
     updated = pyqtSignal()
+    import_faceit_requested = pyqtSignal()
 
     HEADERS = [
         "Rank", "Team", "Abbr", "W", "L", "+/-", "Points", "Status", "Logo"
@@ -1460,12 +1461,15 @@ class StandingsTab(QWidget):
 
         action_row = QHBoxLayout()
         action_row.addStretch(1)
+        self.import_faceit_btn = QPushButton("Import from FACEIT")
         self.reset_btn = QPushButton("Reset this tab")
         self.update_btn = QPushButton("Update + sort")
+        action_row.addWidget(self.import_faceit_btn)
         action_row.addWidget(self.reset_btn)
         action_row.addWidget(self.update_btn)
         root.addLayout(action_row)
 
+        self.import_faceit_btn.clicked.connect(self.import_faceit_requested.emit)
         self.reset_btn.clicked.connect(self.reset_tab)
         self.update_btn.clicked.connect(self._update_and_sort)
         self.add_group_btn.clicked.connect(self._add_group)
@@ -1828,6 +1832,7 @@ class StandingsTab(QWidget):
 
 class BracketTab(QWidget):
     updated = pyqtSignal()
+    import_faceit_requested = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -1906,8 +1911,10 @@ class BracketTab(QWidget):
         team_btns = QHBoxLayout()
         team_btns.addStretch(1)
         self.import_qualified_btn = QPushButton("Import from Standings")
+        self.import_faceit_btn = QPushButton("Import from FACEIT")
         self.clear_teams_btn = QPushButton("Clear")
         team_btns.addWidget(self.import_qualified_btn)
+        team_btns.addWidget(self.import_faceit_btn)
         team_btns.addWidget(self.clear_teams_btn)
         team_panel_layout.addLayout(team_btns)
 
@@ -1933,6 +1940,7 @@ class BracketTab(QWidget):
 
         self.load_template_btn.clicked.connect(self._load_template_from_combo)
         self.import_qualified_btn.clicked.connect(self._import_teams_from_standings)
+        self.import_faceit_btn.clicked.connect(self.import_faceit_requested.emit)
         self.clear_teams_btn.clicked.connect(self._clear_team_list)
         self.reset_btn.clicked.connect(self.reset_tab)
         self.update_btn.clicked.connect(lambda *_: self.updated.emit())
@@ -2473,11 +2481,13 @@ class TournamentApp(QMainWindow):
         # --- STANDINGS TAB ---
         self.standings_tab = StandingsTab()
         self.standings_tab.updated.connect(self._update)
+        self.standings_tab.import_faceit_requested.connect(self._import_standings_from_faceit)
         tabs.addTab(self.standings_tab, "Standings")
 
         # --- BRACKET TAB ---
         self.bracket_tab = BracketTab()
         self.bracket_tab.updated.connect(self._update)
+        self.bracket_tab.import_faceit_requested.connect(self._import_bracket_teams_from_faceit)
         self.bracket_tab.set_qualified_provider(self._teams_from_standings)
         tabs.addTab(self.bracket_tab, "Bracket")
         
@@ -2651,6 +2661,123 @@ class TournamentApp(QMainWindow):
         text = (value or "").strip().lower()
         text = re.sub(r"[^a-z0-9]+", "", text)
         return text
+
+    def _extract_faceit_championship_ids(self, championship_url: str) -> List[str]:
+        url = (championship_url or "").strip()
+        if not url:
+            return []
+        candidates: List[str] = []
+        candidates.extend(re.findall(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", url))
+        path_match = re.search(r"/championship/([^/?#]+)", url, flags=re.IGNORECASE)
+        if path_match:
+            candidates.append(path_match.group(1).strip())
+        out: List[str] = []
+        seen = set()
+        for item in candidates:
+            v = (item or "").strip()
+            if not v:
+                continue
+            for variant in (v, v.lower()):
+                if variant not in seen:
+                    seen.add(variant)
+                    out.append(variant)
+        return out
+
+    def _get_faceit_api_key(self) -> str:
+        return (self.faceit_api_key.text() or "").strip()
+
+    def _get_faceit_championship_url(self) -> str:
+        group_url = (self.faceit_group_stage.text() or "").strip()
+        playoffs_url = (self.faceit_playoffs.text() or "").strip()
+        return group_url or playoffs_url
+
+    def _normalize_faceit_standings_row(self, row: dict) -> StandingsRow:
+        team = row.get("team") or row.get("entity") or row.get("faction") or {}
+        stats = row.get("stats") or row.get("stat") or row
+        team_name = str(row.get("name") or team.get("name") or team.get("nickname") or row.get("team_name") or "").strip()
+        team_abbr = str(row.get("abbr") or team.get("abbreviation") or team.get("tag") or "").strip()
+        logo_url = str(row.get("logo") or team.get("avatar") or team.get("logo") or team.get("image") or "").strip()
+
+        def _num(*keys):
+            for k in keys:
+                if k in row and str(row.get(k, "")).strip() != "":
+                    try:
+                        return int(float(str(row.get(k)).strip()))
+                    except Exception:
+                        pass
+                if isinstance(stats, dict) and k in stats and str(stats.get(k, "")).strip() != "":
+                    try:
+                        return int(float(str(stats.get(k)).strip()))
+                    except Exception:
+                        pass
+            return 0
+
+        wins = _num("wins", "W", "win")
+        losses = _num("losses", "L", "loss")
+        map_diff = _num("map_diff", "maps_diff", "diff", "+/-", "mapDifference")
+        if map_diff == 0:
+            maps_won = _num("maps_won", "mapsFor", "mf", "maps_for")
+            maps_lost = _num("maps_lost", "mapsAgainst", "ma", "maps_against")
+            if maps_won or maps_lost:
+                map_diff = maps_won - maps_lost
+        points = _num("points", "pts", "score")
+
+        logo_path = self._download_faceit_team_logo(logo_url, team_name, "standings") if logo_url else None
+
+        return StandingsRow(
+            team_name=team_name,
+            abbr=team_abbr,
+            logo_path=logo_path,
+            wins=wins,
+            losses=losses,
+            map_diff=map_diff,
+            points=points,
+            status="",
+            rank=0,
+        )
+
+    def _fetch_faceit_championship_standings(self, championship_url: str, api_key: str) -> Dict[str, object]:
+        champ_ids = self._extract_faceit_championship_ids(championship_url)
+        if not champ_ids or not api_key:
+            return {"name": "", "rows": []}
+
+        import urllib.request, urllib.error, json
+        for champ_id in champ_ids:
+            try:
+                req = urllib.request.Request(
+                    f"https://open.faceit.com/data/v4/championships/{champ_id}/standings",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                )
+                with urllib.request.urlopen(req, timeout=10.0) as resp:
+                    data = json.loads(resp.read().decode("utf-8", errors="ignore"))
+
+                rows_raw = []
+                for key in ("items", "results", "standings", "entries"):
+                    val = data.get(key)
+                    if isinstance(val, list):
+                        rows_raw = val
+                        break
+                if not rows_raw and isinstance(data.get("groups"), list):
+                    for g in data.get("groups") or []:
+                        if isinstance(g, dict):
+                            rows_raw.extend(g.get("items") or g.get("standings") or [])
+
+                rows = []
+                for item in rows_raw:
+                    if not isinstance(item, dict):
+                        continue
+                    row = self._normalize_faceit_standings_row(item)
+                    if row.team_name:
+                        rows.append(row)
+
+                if rows:
+                    _apply_standings_ranks(rows)
+                    return {"name": str(data.get("name") or "").strip(), "rows": rows}
+            except urllib.error.HTTPError:
+                continue
+            except Exception:
+                continue
+        return {"name": "", "rows": []}
 
     def _extract_faceit_team_ids(self, team_url: str) -> List[str]:
         url = (team_url or "").strip()
@@ -3049,6 +3176,62 @@ class TournamentApp(QMainWindow):
             return out_path
         except Exception:
             return None
+
+    def _import_standings_from_faceit(self):
+        championship_url = self._get_faceit_championship_url()
+        api_key = self._get_faceit_api_key()
+        if not championship_url:
+            QMessageBox.warning(self, "FACEIT import", "Aseta Group stage tai Playoffs FACEIT-linkki Statistics-välilehdellä.")
+            return
+        if not api_key:
+            QMessageBox.warning(self, "FACEIT import", "Aseta FACEIT API key Statistics-välilehdellä.")
+            return
+
+        payload = self._fetch_faceit_championship_standings(championship_url, api_key)
+        rows = payload.get("rows") or []
+        if not rows:
+            QMessageBox.warning(self, "FACEIT import", "Standings-dataa ei saatu haettua FACEITista.")
+            return
+
+        current = self.standings_tab.to_settings()
+        groups = current.groups or [StandingsGroup(key="group_1", name="Group 1", rows=[])]
+        groups[0].rows = rows
+        if payload.get("name") and not (current.title or "").strip():
+            current.title = str(payload.get("name") or "").strip()
+        current.rows = list(rows)
+        current.groups = groups
+        self.standings_tab.from_settings(current)
+        self._autosave(self._collect_state())
+        self._update()
+        QMessageBox.information(self, "FACEIT import", f"Tuotiin {len(rows)} standings-riviä FACEITista.")
+
+    def _import_bracket_teams_from_faceit(self):
+        championship_url = self._get_faceit_championship_url()
+        api_key = self._get_faceit_api_key()
+        if not championship_url:
+            QMessageBox.warning(self, "FACEIT import", "Aseta Group stage tai Playoffs FACEIT-linkki Statistics-välilehdellä.")
+            return
+        if not api_key:
+            QMessageBox.warning(self, "FACEIT import", "Aseta FACEIT API key Statistics-välilehdellä.")
+            return
+
+        payload = self._fetch_faceit_championship_standings(championship_url, api_key)
+        rows = payload.get("rows") or []
+        if not rows:
+            QMessageBox.warning(self, "FACEIT import", "Bracket-tiimejä ei saatu haettua FACEITista.")
+            return
+
+        teams = [TeamRef(name=r.team_name, abbr=r.abbr, logo_path=r.logo_path) for r in rows if (r.team_name or "").strip()]
+        if not teams:
+            QMessageBox.warning(self, "FACEIT import", "Bracket-tiimejä ei löytynyt FACEIT-datasta.")
+            return
+
+        for idx, row in enumerate(self.bracket_tab.team_rows):
+            row.set_team(teams[idx] if idx < len(teams) else None)
+        self.bracket_tab._refresh_team_options()
+        self._autosave(self._collect_state())
+        self._update()
+        QMessageBox.information(self, "FACEIT import", f"Tuotiin {min(len(teams), len(self.bracket_tab.team_rows))} bracket-tiimiä FACEITista.")
 
     def _import_team_players_from_faceit(self, slot: str):
         panel = self.team1_panel if slot == "t1" else self.team2_panel
