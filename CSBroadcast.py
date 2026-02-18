@@ -854,16 +854,6 @@ class GeneralTab(QWidget):
         super().__init__()
         root = QVBoxLayout(self)
 
-        bo_box = QGroupBox("Number of Maps")
-        bo_lay = QHBoxLayout(bo_box)
-        self.maps_count = QSpinBox()
-        self.maps_count.setRange(1, 7)
-        self.maps_count.setValue(3)
-        bo_lay.addWidget(QLabel("Maps:"))
-        bo_lay.addWidget(self.maps_count)
-        bo_lay.addStretch(1)
-        root.addWidget(bo_box)
-
 
         people_box = QGroupBox("Casters & Host")
         people = QGridLayout(people_box)
@@ -983,7 +973,6 @@ class GeneralTab(QWidget):
 
     def to_settings(self) -> GeneralSettings:
         return GeneralSettings(
-            first_to=int(self.maps_count.value()),
             host=self.host.text().strip(),
             caster1=self.caster1.text().strip(),
             caster2=self.caster2.text().strip(),
@@ -995,13 +984,6 @@ class GeneralTab(QWidget):
 
 
     def from_settings(self, s: GeneralSettings):
-        try:
-            n = int(getattr(s, "first_to", 3) or 3)
-        except ValueError:
-            n = 3
-        n = max(1, min(7, n))
-        self.maps_count.setValue(n)
-
         self.host.setText(s.host or "")
         self.caster1.setText(s.caster1 or "")
         self.caster2.setText(s.caster2 or "")
@@ -4452,6 +4434,14 @@ class TournamentApp(QMainWindow):
 
 
 
+    def _count_pick_decider_maps(self) -> int:
+        count = 0
+        for mr in self.map_rows:
+            action = (mr.draft_action.currentText() or "").strip().lower()
+            if action in {"pick", "decider"}:
+                count += 1
+        return max(1, min(7, count))
+
     def _first_uncompleted_pick_or_decider(self, maps: List[dict]) -> Optional[int]:
         for item in maps or []:
             action = (item.get("draft_action") or "").strip().lower()
@@ -4526,6 +4516,7 @@ class TournamentApp(QMainWindow):
             }
         }
         general = self.general_tab.to_settings()
+        general.first_to = self._count_pick_decider_maps()
         state["general"] = asdict(general)
         waiting = self.waiting_tab.to_settings()
         state["waiting"] = asdict(waiting)
@@ -4786,7 +4777,9 @@ class TournamentApp(QMainWindow):
         self._last_state_for_diff = state
         
     def _update_general_only(self):
-        g = asdict(self.general_tab.to_settings())
+        settings = self.general_tab.to_settings()
+        settings.first_to = self._count_pick_decider_maps()
+        g = asdict(settings)
         self._export_general(GeneralSettings(**g))
         self._export_status_text({"general": g})
         full = {
@@ -4814,7 +4807,9 @@ class TournamentApp(QMainWindow):
     def _update_waiting_only(self):
         w = asdict(self.waiting_tab.to_settings())
         self._export_waiting({"waiting": w})
-        g = asdict(self.general_tab.to_settings())
+        settings = self.general_tab.to_settings()
+        settings.first_to = self._count_pick_decider_maps()
+        g = asdict(settings)
         self._export_status_text({"general": g})
         self._autosave(self._collect_state())
         full = {
