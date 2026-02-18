@@ -105,7 +105,6 @@ Features include title text, countdown support, logo area, social row, and video
   - **Reset this tab**: clears Match fields
 
 ## General tab
-- Number of maps / first-to behavior
 - Host, Caster 1, Caster 2
 - Status text
 - Overlay logo and Transition logo
