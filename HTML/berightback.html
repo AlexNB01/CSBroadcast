@@ -496,8 +496,12 @@ async function upTimer(){
 
   let playlist = []; let playIndex = 0;
   let lastPlaylistKey = null;
-	function resolveUrl(_base, file){
-	  return WAIT + "/Playlist/" + file;
+	function resolveUrl(base, file){
+	  const safeBase = (base||"").trim().replace(/\\/g, "/").replace(/\/$/, "");
+	  if(!safeBase) return WAIT + "/Playlist/" + file;
+	  if(/^https?:\/\//i.test(safeBase) || /^file:\/\//i.test(safeBase)) return safeBase + "/" + file;
+	  if(/^[a-z]:\//i.test(safeBase)) return "file:///" + safeBase + "/" + file;
+	  return safeBase + "/" + file;
 	}
   async function loadPlaylist(){
     const base = (await read(WAIT+"/videos_dir.txt")).trim();

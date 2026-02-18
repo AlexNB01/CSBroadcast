@@ -3405,9 +3405,7 @@ class TournamentApp(QMainWindow):
     def _export_waiting(self, state: dict):
         root = self._scoreboard_root()
         wdir = os.path.join(root, "Waiting")
-        pldir = os.path.join(wdir, "Playlist")
         os.makedirs(wdir, exist_ok=True)
-        os.makedirs(pldir, exist_ok=True)
 
         w: dict = state.get("waiting") or {}
         ws = WaitingSettings(**w) if isinstance(w, dict) else WaitingSettings()
@@ -3446,21 +3444,9 @@ class TournamentApp(QMainWindow):
             for fn in sorted(os.listdir(src_dir)):
                 if os.path.splitext(fn)[1].lower() in exts:
                     filenames.append(fn)
-                    src = os.path.join(src_dir, fn)
-                    dst = os.path.join(pldir, fn)
-                    try:
-                        if (not os.path.exists(dst)) or (os.path.getmtime(src) > os.path.getmtime(dst)):
-                            shutil.copy2(src, dst)
-                    except Exception:
-                        pass
-
-        for old in os.listdir(pldir):
-            if old not in filenames:
-                try: os.remove(os.path.join(pldir, old))
-                except Exception: pass
 
         self._write_txt(os.path.join(wdir, "videos.txt"), "\n".join(filenames) + ("\n" if filenames else ""))
-        self._write_txt(os.path.join(wdir, "videos_dir.txt"), "")
+        self._write_txt(os.path.join(wdir, "videos_dir.txt"), (src_dir or "").replace("\\", "/"))
         self._write_txt(os.path.join(wdir, "timer_running.txt"),
                 "1" if bool(ws.timer_running) else "0")
 
