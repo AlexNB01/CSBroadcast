@@ -3387,6 +3387,11 @@ class TournamentApp(QMainWindow):
         loaded_maps = self._load_assets_from_index("Maps", self.maps)
 
         if not loaded_maps:
+            bundled_root = _bundled_scoreboard_dir()
+            if bundled_root:
+                loaded_maps = self._load_assets_from_index("Maps", self.maps, root_override=bundled_root)
+
+        if not loaded_maps:
             maps_dir = pick_dir("maps")
             maps_files = self._scan_image_files(maps_dir)
             self.maps.clear()
@@ -4083,13 +4088,13 @@ class TournamentApp(QMainWindow):
 
         return keys
 
-    def _load_assets_from_index(self, category: str, target_dict: dict) -> bool:
+    def _load_assets_from_index(self, category: str, target_dict: dict, root_override: Optional[str] = None) -> bool:
         """
         Lataa Scoreboard/<category>/index.json ja täyttää target_dict:
         - category: "Maps"
         Palauttaa True jos lataus onnistui, muuten False.
         """
-        root = self._scoreboard_root()
+        root = root_override or self._scoreboard_root()
         cat_dir = os.path.join(root, category)
         p = os.path.join(cat_dir, "index.json")
         if not os.path.isfile(p):
