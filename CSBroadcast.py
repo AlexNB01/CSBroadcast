@@ -3733,7 +3733,8 @@ class TournamentApp(QMainWindow):
     def build_match_text(self, state: dict) -> str:
         """
         Muoto: Team1 (t1Total - t2Total) Team2    -    Map1 (x - y)    -    Map2 (...) ...
-        Kirjoittaa kaikki GUIhin syötetyt kartat järjestyksessä. Ottaa map-nimen vain jos se on annettu.
+        Kirjoittaa vain pelattavat kartat (ei Ban-rivejä) järjestyksessä.
+        Ottaa map-nimen vain jos se on annettu.
         """
         t1 = state.get("team1", {}) or {}
         t2 = state.get("team2", {}) or {}
@@ -3748,6 +3749,9 @@ class TournamentApp(QMainWindow):
 
         for item in maps:
             if not item:
+                continue
+            action = (item.get("draft_action") or "").strip().lower()
+            if action == "ban":
                 continue
             name = (item.get("map") or "").strip()
             m1 = int(item.get("t1") or 0)
