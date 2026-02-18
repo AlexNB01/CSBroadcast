@@ -154,6 +154,7 @@
     font-size:40px; font-weight:900; letter-spacing:.4px;
   }
   .map-card.waiting { background: var(--tertiary) center/cover no-repeat; }
+.map-card.future-map { filter: grayscale(100%); }
 .mode-icon{ width:100px; height:100px; background:center/contain no-repeat; opacity:.95; }
 #status{
   position:absolute;
@@ -336,6 +337,8 @@ async function renderMaps(){
     })
     .filter(m => m.action !== "BAN");
 
+  const currentPlayableIdx = playable.findIndex(m => !m.completed);
+
   const sig = JSON.stringify(playable);
   if(sig === _prevSig) return;
   _prevSig = sig;
@@ -346,12 +349,15 @@ async function renderMaps(){
 
   root.style.gridTemplateColumns = `repeat(${playable.length}, minmax(0, 1fr))`;
 
-  for (const m of playable){
+  for (const [playableIdx, m] of playable.entries()){
     const wrap = document.createElement("div");
     wrap.className = "map-wrap";
 
     const card = document.createElement("div");
     card.className = "map-card";
+    if (currentPlayableIdx >= 0 && playableIdx > currentPlayableIdx) {
+      card.classList.add("future-map");
+    }
 
     let bgSet = false;
     if(m.name){
