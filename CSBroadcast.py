@@ -2692,28 +2692,33 @@ class TournamentApp(QMainWindow):
         return group_url or playoffs_url
 
     def _normalize_faceit_standings_row(self, row: dict) -> StandingsRow:
-        team = row.get("team") or row.get("entity") or row.get("faction") or {}
-        stats = row.get("stats") or row.get("stat") or row
-        team_name = str(row.get("name") or team.get("name") or team.get("nickname") or row.get("team_name") or "").strip()
-        team_abbr = str(row.get("abbr") or team.get("abbreviation") or team.get("tag") or "").strip()
-        logo_url = str(row.get("logo") or team.get("avatar") or team.get("logo") or team.get("image") or "").strip()
+        team = row.get("team") or row.get("entity") or row.get("faction") or row.get("leaderboard_item") or {}
+        stats = row.get("stats") or row.get("stat") or row.get("statistics") or team.get("stats") or row
+        team_name = str(
+            row.get("name") or row.get("team_name") or row.get("entity_name") or
+            team.get("name") or team.get("nickname") or team.get("entity_name") or ""
+        ).strip()
+        team_abbr = str(
+            row.get("abbr") or row.get("team_abbr") or row.get("tag") or
+            team.get("abbreviation") or team.get("tag") or ""
+        ).strip()
+        logo_url = str(
+            row.get("logo") or row.get("avatar") or row.get("entity_avatar") or
+            team.get("avatar") or team.get("logo") or team.get("image") or team.get("entity_avatar") or ""
+        ).strip()
 
         def _num(*keys):
             for k in keys:
-                if k in row and str(row.get(k, "")).strip() != "":
-                    try:
-                        return int(float(str(row.get(k)).strip()))
-                    except Exception:
-                        pass
-                if isinstance(stats, dict) and k in stats and str(stats.get(k, "")).strip() != "":
-                    try:
-                        return int(float(str(stats.get(k)).strip()))
-                    except Exception:
-                        pass
+                for src in (row, team, stats):
+                    if isinstance(src, dict) and k in src and str(src.get(k, "")).strip() != "":
+                        try:
+                            return int(float(str(src.get(k)).strip()))
+                        except Exception:
+                            pass
             return 0
 
-        wins = _num("wins", "W", "win")
-        losses = _num("losses", "L", "loss")
+        wins = _num("wins", "W", "win", "won")
+        losses = _num("losses", "L", "loss", "lost")
         map_diff = _num("map_diff", "maps_diff", "diff", "+/-", "mapDifference")
         if map_diff == 0:
             maps_won = _num("maps_won", "mapsFor", "mf", "maps_for")
@@ -2736,48 +2741,78 @@ class TournamentApp(QMainWindow):
             rank=0,
         )
 
+    def _extract_faceit_standings_rows(self, payload: dict) -> List[dict]:
+        rows: List[dict] = []
+
+        def _collect(value):
+            if isinstance(value, list):
+                for item in value:
+                    _collect(item)
+                return
+            if not isinstance(value, dict):
+                return
+
+            for key in ("items", "results", "standings", "entries", "leaderboard", "leaderboard_items"):
+                vv = value.get(key)
+                if isinstance(vv, list):
+                    for item in vv:
+                        if isinstance(item, dict):
+                            rows.append(item)
+
+            for sub in value.values():
+                if isinstance(sub, (dict, list)):
+                    _collect(sub)
+
+        _collect(payload or {})
+
+        unique = []
+        seen = set()
+        for item in rows:
+            key = str(item.get("entity_id") or item.get("team_id") or item.get("name") or item.get("entity_name") or "").strip().lower()
+            if key and key in seen:
+                continue
+            if key:
+                seen.add(key)
+            unique.append(item)
+        return unique
+
     def _fetch_faceit_championship_standings(self, championship_url: str, api_key: str) -> Dict[str, object]:
         champ_ids = self._extract_faceit_championship_ids(championship_url)
         if not champ_ids or not api_key:
-            return {"name": "", "rows": []}
+            return {"name": "", "rows": [], "error": "Missing championship URL or API key."}
 
         import urllib.request, urllib.error, json
+        last_error = ""
         for champ_id in champ_ids:
-            try:
-                req = urllib.request.Request(
-                    f"https://open.faceit.com/data/v4/championships/{champ_id}/standings",
-                    headers={"Authorization": f"Bearer {api_key}"},
-                )
-                with urllib.request.urlopen(req, timeout=10.0) as resp:
-                    data = json.loads(resp.read().decode("utf-8", errors="ignore"))
+            for endpoint in (
+                f"https://open.faceit.com/data/v4/championships/{champ_id}/standings",
+                f"https://open.faceit.com/data/v4/championships/{champ_id}",
+            ):
+                try:
+                    req = urllib.request.Request(
+                        endpoint,
+                        headers={"Authorization": f"Bearer {api_key}"},
+                    )
+                    with urllib.request.urlopen(req, timeout=10.0) as resp:
+                        data = json.loads(resp.read().decode("utf-8", errors="ignore"))
 
-                rows_raw = []
-                for key in ("items", "results", "standings", "entries"):
-                    val = data.get(key)
-                    if isinstance(val, list):
-                        rows_raw = val
-                        break
-                if not rows_raw and isinstance(data.get("groups"), list):
-                    for g in data.get("groups") or []:
-                        if isinstance(g, dict):
-                            rows_raw.extend(g.get("items") or g.get("standings") or [])
+                    rows_raw = self._extract_faceit_standings_rows(data)
+                    rows = []
+                    for item in rows_raw:
+                        if not isinstance(item, dict):
+                            continue
+                        row = self._normalize_faceit_standings_row(item)
+                        if row.team_name:
+                            rows.append(row)
 
-                rows = []
-                for item in rows_raw:
-                    if not isinstance(item, dict):
-                        continue
-                    row = self._normalize_faceit_standings_row(item)
-                    if row.team_name:
-                        rows.append(row)
-
-                if rows:
-                    _apply_standings_ranks(rows)
-                    return {"name": str(data.get("name") or "").strip(), "rows": rows}
-            except urllib.error.HTTPError:
-                continue
-            except Exception:
-                continue
-        return {"name": "", "rows": []}
+                    if rows:
+                        _apply_standings_ranks(rows)
+                        return {"name": str(data.get("name") or "").strip(), "rows": rows, "error": ""}
+                except urllib.error.HTTPError as e:
+                    last_error = f"HTTP {e.code} from {endpoint}"
+                except Exception as e:
+                    last_error = str(e)
+        return {"name": "", "rows": [], "error": last_error or "No standings rows returned by FACEIT API."}
 
     def _extract_faceit_team_ids(self, team_url: str) -> List[str]:
         url = (team_url or "").strip()
@@ -3181,16 +3216,18 @@ class TournamentApp(QMainWindow):
         championship_url = self._get_faceit_championship_url()
         api_key = self._get_faceit_api_key()
         if not championship_url:
-            QMessageBox.warning(self, "FACEIT import", "Aseta Group stage tai Playoffs FACEIT-linkki Statistics-välilehdellä.")
+            QMessageBox.warning(self, "FACEIT import", "Set Group stage or Playoffs FACEIT URL in the Statistics tab.")
             return
         if not api_key:
-            QMessageBox.warning(self, "FACEIT import", "Aseta FACEIT API key Statistics-välilehdellä.")
+            QMessageBox.warning(self, "FACEIT import", "Set FACEIT API key in the Statistics tab.")
             return
 
         payload = self._fetch_faceit_championship_standings(championship_url, api_key)
         rows = payload.get("rows") or []
         if not rows:
-            QMessageBox.warning(self, "FACEIT import", "Standings-dataa ei saatu haettua FACEITista.")
+            reason = (payload.get("error") or "").strip()
+            extra = f"\nReason: {reason}" if reason else ""
+            QMessageBox.warning(self, "FACEIT import", "Could not fetch standings data from FACEIT." + extra)
             return
 
         current = self.standings_tab.to_settings()
@@ -3203,27 +3240,29 @@ class TournamentApp(QMainWindow):
         self.standings_tab.from_settings(current)
         self._autosave(self._collect_state())
         self._update()
-        QMessageBox.information(self, "FACEIT import", f"Tuotiin {len(rows)} standings-riviä FACEITista.")
+        QMessageBox.information(self, "FACEIT import", f"Imported {len(rows)} standings rows from FACEIT.")
 
     def _import_bracket_teams_from_faceit(self):
         championship_url = self._get_faceit_championship_url()
         api_key = self._get_faceit_api_key()
         if not championship_url:
-            QMessageBox.warning(self, "FACEIT import", "Aseta Group stage tai Playoffs FACEIT-linkki Statistics-välilehdellä.")
+            QMessageBox.warning(self, "FACEIT import", "Set Group stage or Playoffs FACEIT URL in the Statistics tab.")
             return
         if not api_key:
-            QMessageBox.warning(self, "FACEIT import", "Aseta FACEIT API key Statistics-välilehdellä.")
+            QMessageBox.warning(self, "FACEIT import", "Set FACEIT API key in the Statistics tab.")
             return
 
         payload = self._fetch_faceit_championship_standings(championship_url, api_key)
         rows = payload.get("rows") or []
         if not rows:
-            QMessageBox.warning(self, "FACEIT import", "Bracket-tiimejä ei saatu haettua FACEITista.")
+            reason = (payload.get("error") or "").strip()
+            extra = f"\nReason: {reason}" if reason else ""
+            QMessageBox.warning(self, "FACEIT import", "Could not fetch bracket teams from FACEIT." + extra)
             return
 
         teams = [TeamRef(name=r.team_name, abbr=r.abbr, logo_path=r.logo_path) for r in rows if (r.team_name or "").strip()]
         if not teams:
-            QMessageBox.warning(self, "FACEIT import", "Bracket-tiimejä ei löytynyt FACEIT-datasta.")
+            QMessageBox.warning(self, "FACEIT import", "No bracket teams found in FACEIT data.")
             return
 
         for idx, row in enumerate(self.bracket_tab.team_rows):
@@ -3231,22 +3270,22 @@ class TournamentApp(QMainWindow):
         self.bracket_tab._refresh_team_options()
         self._autosave(self._collect_state())
         self._update()
-        QMessageBox.information(self, "FACEIT import", f"Tuotiin {min(len(teams), len(self.bracket_tab.team_rows))} bracket-tiimiä FACEITista.")
+        QMessageBox.information(self, "FACEIT import", f"Imported {min(len(teams), len(self.bracket_tab.team_rows))} bracket teams from FACEIT.")
 
     def _import_team_players_from_faceit(self, slot: str):
         panel = self.team1_panel if slot == "t1" else self.team2_panel
         url = (self.faceit_match_page.text() or "").strip()
         api_key = (self.faceit_api_key.text() or "").strip()
         if not url:
-            QMessageBox.warning(self, "FACEIT import", "Aseta ensin ottelun FACEIT-linkki Statistics-välilehdellä (Match page).")
+            QMessageBox.warning(self, "FACEIT import", "Set match FACEIT URL first in the Statistics tab (Match page).")
             return
         if not api_key:
-            QMessageBox.warning(self, "FACEIT import", "Aseta FACEIT API key Statistics-välilehdellä.")
+            QMessageBox.warning(self, "FACEIT import", "Set FACEIT API key in the Statistics tab.")
             return
 
         match_ids = self._extract_faceit_match_ids(url)
         if not match_ids:
-            QMessageBox.warning(self, "FACEIT import", "Ottelun FACEIT-linkistä ei löytynyt match ID:tä.")
+            QMessageBox.warning(self, "FACEIT import", "No match ID found in the FACEIT match URL.")
             return
 
         import urllib.request, urllib.error, json
@@ -3270,7 +3309,7 @@ class TournamentApp(QMainWindow):
                 continue
 
         if not players_by_slot or not players_by_slot.get(slot):
-            QMessageBox.warning(self, "FACEIT import", "Pelaajia ei löytynyt FACEIT-datasta valitulle tiimille.")
+            QMessageBox.warning(self, "FACEIT import", "No players found in FACEIT data for the selected team.")
             return
 
         details = (team_details or {}).get(slot) or {}
@@ -3297,17 +3336,17 @@ class TournamentApp(QMainWindow):
             pr.faceit_link.setText(getattr(pdata, "faceit_link", "") or "")
 
         self._autosave(self._collect_state())
-        QMessageBox.information(self, "FACEIT import", f"Tuotiin {min(len(players_by_slot[slot]), PLAYER_SLOTS)} pelaajaa sekä tiimin tiedot.")
+        QMessageBox.information(self, "FACEIT import", f"Imported {min(len(players_by_slot[slot]), PLAYER_SLOTS)} players and team details.")
 
     def _import_maps_from_faceit(self):
         url = (self.faceit_match_page.text() or "").strip()
         if not url:
-            QMessageBox.warning(self, "FACEIT import", "Aseta ensin ottelun FACEIT-linkki Statistics-välilehdellä (Match page).")
+            QMessageBox.warning(self, "FACEIT import", "Set match FACEIT URL first in the Statistics tab (Match page).")
             return
 
         draft_maps = self._fetch_faceit_draft_maps(url)
         if not draft_maps:
-            QMessageBox.warning(self, "FACEIT import", "Karttoja ei saatu haettua FACEIT-linkistä.")
+            QMessageBox.warning(self, "FACEIT import", "Could not fetch maps from the FACEIT URL.")
             return
 
         for mr in self.map_rows:
@@ -3337,7 +3376,7 @@ class TournamentApp(QMainWindow):
 
         self._autosave(self._collect_state())
         self._update()
-        QMessageBox.information(self, "FACEIT import", f"Tuotiin {min(len(draft_maps), len(self.map_rows))} karttaa FACEITista.")
+        QMessageBox.information(self, "FACEIT import", f"Imported {min(len(draft_maps), len(self.map_rows))} maps from FACEIT.")
 
     def _parse_faceit_stat_number(self, value):
         if value is None:
