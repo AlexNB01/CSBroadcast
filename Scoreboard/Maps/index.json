@@ -1,0 +1,39 @@
+{
+  "maps": [
+    {
+      "name": "Dust 2",
+      "slug": "dust-2",
+      "image": "Maps/dust-2.png"
+    },
+    {
+      "name": "Mirage",
+      "slug": "mirage",
+      "image": "Maps/mirage.png"
+    },
+    {
+      "name": "Overpass",
+      "slug": "overpass",
+      "image": "Maps/overpass.png"
+    },
+    {
+      "name": "Inferno",
+      "slug": "inferno",
+      "image": "Maps/inferno.png"
+    },
+    {
+      "name": "Ancient",
+      "slug": "ancient",
+      "image": "Maps/ancient.png"
+    },
+    {
+      "name": "Anubis",
+      "slug": "anubis",
+      "image": "Maps/anubis.png"
+    },
+    {
+      "name": "Nuke",
+      "slug": "nuke",
+      "image": "Maps/nuke.png"
+    }
+  ]
+}
