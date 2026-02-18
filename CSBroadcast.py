@@ -2694,9 +2694,16 @@ class TournamentApp(QMainWindow):
     def _normalize_faceit_standings_row(self, row: dict) -> StandingsRow:
         team = row.get("team") or row.get("entity") or row.get("faction") or row.get("leaderboard_item") or {}
         stats = row.get("stats") or row.get("stat") or row.get("statistics") or team.get("stats") or row
+
+        has_team_identity = bool(team) or any(
+            str(row.get(k) or "").strip()
+            for k in ("team_name", "entity_name", "team_id", "entity_id", "faction_id")
+        )
+
         team_name = str(
-            row.get("name") or row.get("team_name") or row.get("entity_name") or
-            team.get("name") or team.get("nickname") or team.get("entity_name") or ""
+            row.get("team_name") or row.get("entity_name") or
+            team.get("name") or team.get("nickname") or team.get("entity_name") or
+            (row.get("name") if has_team_identity else "") or ""
         ).strip()
         team_abbr = str(
             row.get("abbr") or row.get("team_abbr") or row.get("tag") or
@@ -2759,8 +2766,15 @@ class TournamentApp(QMainWindow):
                         if isinstance(item, dict):
                             rows.append(item)
 
-            # If this dict itself looks like a team standing row, keep it.
-            if any(k in value for k in ("team", "entity", "faction", "team_name", "entity_name", "name", "entity_id", "team_id")):
+            # Keep only dicts that look like team rows (avoid championship/meta objects).
+            has_team_obj = any(isinstance(value.get(k), dict) for k in ("team", "entity", "faction", "leaderboard_item"))
+            has_team_id = any(str(value.get(k) or "").strip() for k in ("team_id", "entity_id", "faction_id", "team_name", "entity_name"))
+            has_standing_stats = any(
+                str((value.get("stats") or value.get("statistics") or value).get(k, "")).strip()
+                for k in ("wins", "losses", "points", "map_diff", "maps_diff", "W", "L")
+                if isinstance(value.get("stats") or value.get("statistics") or value, dict)
+            )
+            if has_team_obj or has_team_id or (has_standing_stats and str(value.get("name") or "").strip()):
                 rows.append(value)
 
             for sub in value.values():
