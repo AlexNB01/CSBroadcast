@@ -2781,37 +2781,94 @@ class TournamentApp(QMainWindow):
         if not champ_ids or not api_key:
             return {"name": "", "rows": [], "error": "Missing championship URL or API key."}
 
-        import urllib.request, urllib.error, json
+        import urllib.request, urllib.error, urllib.parse, json
+
+        def _request_json(endpoint: str) -> dict:
+            req = urllib.request.Request(
+                endpoint,
+                headers={"Authorization": f"Bearer {api_key}"},
+            )
+            with urllib.request.urlopen(req, timeout=10.0) as resp:
+                return json.loads(resp.read().decode("utf-8", errors="ignore"))
+
+        def _normalize_rows(payload: dict) -> List[StandingsRow]:
+            out: List[StandingsRow] = []
+            for item in self._extract_faceit_standings_rows(payload):
+                if not isinstance(item, dict):
+                    continue
+                row = self._normalize_faceit_standings_row(item)
+                if row.team_name:
+                    out.append(row)
+            return out
+
         last_error = ""
         for champ_id in champ_ids:
-            for endpoint in (
-                f"https://open.faceit.com/data/v4/championships/{champ_id}/standings",
-                f"https://open.faceit.com/data/v4/championships/{champ_id}",
-            ):
-                try:
-                    req = urllib.request.Request(
-                        endpoint,
-                        headers={"Authorization": f"Bearer {api_key}"},
-                    )
-                    with urllib.request.urlopen(req, timeout=10.0) as resp:
-                        data = json.loads(resp.read().decode("utf-8", errors="ignore"))
+            championship_name = ""
+            all_rows: List[StandingsRow] = []
 
-                    rows_raw = self._extract_faceit_standings_rows(data)
-                    rows = []
-                    for item in rows_raw:
-                        if not isinstance(item, dict):
-                            continue
-                        row = self._normalize_faceit_standings_row(item)
-                        if row.team_name:
-                            rows.append(row)
+            try:
+                meta_endpoint = f"https://open.faceit.com/data/v4/championships/{champ_id}"
+                meta_data = _request_json(meta_endpoint)
+                championship_name = str(meta_data.get("name") or "").strip()
+                all_rows.extend(_normalize_rows(meta_data))
+            except urllib.error.HTTPError as e:
+                last_error = f"HTTP {e.code} from https://open.faceit.com/data/v4/championships/{champ_id}"
+            except Exception as e:
+                last_error = str(e)
 
-                    if rows:
-                        _apply_standings_ranks(rows)
-                        return {"name": str(data.get("name") or "").strip(), "rows": rows, "error": ""}
-                except urllib.error.HTTPError as e:
-                    last_error = f"HTTP {e.code} from {endpoint}"
-                except Exception as e:
-                    last_error = str(e)
+            try:
+                lb_endpoint = f"https://open.faceit.com/data/v4/leaderboards/championships/{champ_id}"
+                lb_data = _request_json(lb_endpoint)
+                all_rows.extend(_normalize_rows(lb_data))
+
+                groups = lb_data.get("groups") or lb_data.get("leaderboard_groups") or []
+                group_ids: List[str] = []
+                for g in groups:
+                    if isinstance(g, dict):
+                        gid = str(g.get("group") or g.get("group_id") or g.get("id") or "").strip()
+                    else:
+                        gid = str(g or "").strip()
+                    if gid and gid not in group_ids:
+                        group_ids.append(gid)
+
+                for gid in group_ids:
+                    gid_q = urllib.parse.quote(gid, safe="")
+                    group_endpoint = f"https://open.faceit.com/data/v4/leaderboards/championships/{champ_id}/groups/{gid_q}"
+                    try:
+                        group_data = _request_json(group_endpoint)
+                        all_rows.extend(_normalize_rows(group_data))
+                    except urllib.error.HTTPError as e:
+                        last_error = f"HTTP {e.code} from {group_endpoint}"
+                    except Exception as e:
+                        last_error = str(e)
+            except urllib.error.HTTPError as e:
+                last_error = f"HTTP {e.code} from https://open.faceit.com/data/v4/leaderboards/championships/{champ_id}"
+            except Exception as e:
+                last_error = str(e)
+
+            dedup: Dict[str, StandingsRow] = {}
+            for row in all_rows:
+                key = (row.team_name or "").strip().lower()
+                if not key:
+                    continue
+                existing = dedup.get(key)
+                if not existing:
+                    dedup[key] = row
+                else:
+                    if not existing.logo_path and row.logo_path:
+                        existing.logo_path = row.logo_path
+                    if not existing.abbr and row.abbr:
+                        existing.abbr = row.abbr
+                    existing.wins = max(int(existing.wins or 0), int(row.wins or 0))
+                    existing.losses = max(int(existing.losses or 0), int(row.losses or 0))
+                    existing.map_diff = int(row.map_diff or existing.map_diff or 0)
+                    existing.points = max(int(existing.points or 0), int(row.points or 0))
+
+            rows = list(dedup.values())
+            if rows:
+                _apply_standings_ranks(rows)
+                return {"name": championship_name, "rows": rows, "error": ""}
+
         return {"name": "", "rows": [], "error": last_error or "No standings rows returned by FACEIT API."}
 
     def _extract_faceit_team_ids(self, team_url: str) -> List[str]:
