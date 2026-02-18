@@ -1416,7 +1416,6 @@ class DraftTab(QWidget):
 
 class StandingsTab(QWidget):
     updated = pyqtSignal()
-    import_faceit_requested = pyqtSignal()
 
     HEADERS = [
         "Rank", "Team", "Abbr", "W", "L", "+/-", "Points", "Status", "Logo"
@@ -1461,15 +1460,12 @@ class StandingsTab(QWidget):
 
         action_row = QHBoxLayout()
         action_row.addStretch(1)
-        self.import_faceit_btn = QPushButton("Import from FACEIT")
         self.reset_btn = QPushButton("Reset this tab")
         self.update_btn = QPushButton("Update + sort")
-        action_row.addWidget(self.import_faceit_btn)
         action_row.addWidget(self.reset_btn)
         action_row.addWidget(self.update_btn)
         root.addLayout(action_row)
 
-        self.import_faceit_btn.clicked.connect(self.import_faceit_requested.emit)
         self.reset_btn.clicked.connect(self.reset_tab)
         self.update_btn.clicked.connect(self._update_and_sort)
         self.add_group_btn.clicked.connect(self._add_group)
@@ -1832,7 +1828,6 @@ class StandingsTab(QWidget):
 
 class BracketTab(QWidget):
     updated = pyqtSignal()
-    import_faceit_requested = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -1911,10 +1906,8 @@ class BracketTab(QWidget):
         team_btns = QHBoxLayout()
         team_btns.addStretch(1)
         self.import_qualified_btn = QPushButton("Import from Standings")
-        self.import_faceit_btn = QPushButton("Import from FACEIT")
         self.clear_teams_btn = QPushButton("Clear")
         team_btns.addWidget(self.import_qualified_btn)
-        team_btns.addWidget(self.import_faceit_btn)
         team_btns.addWidget(self.clear_teams_btn)
         team_panel_layout.addLayout(team_btns)
 
@@ -1940,7 +1933,6 @@ class BracketTab(QWidget):
 
         self.load_template_btn.clicked.connect(self._load_template_from_combo)
         self.import_qualified_btn.clicked.connect(self._import_teams_from_standings)
-        self.import_faceit_btn.clicked.connect(self.import_faceit_requested.emit)
         self.clear_teams_btn.clicked.connect(self._clear_team_list)
         self.reset_btn.clicked.connect(self.reset_tab)
         self.update_btn.clicked.connect(lambda *_: self.updated.emit())
@@ -2481,13 +2473,11 @@ class TournamentApp(QMainWindow):
         # --- STANDINGS TAB ---
         self.standings_tab = StandingsTab()
         self.standings_tab.updated.connect(self._update)
-        self.standings_tab.import_faceit_requested.connect(self._import_standings_from_faceit)
         tabs.addTab(self.standings_tab, "Standings")
 
         # --- BRACKET TAB ---
         self.bracket_tab = BracketTab()
         self.bracket_tab.updated.connect(self._update)
-        self.bracket_tab.import_faceit_requested.connect(self._import_bracket_teams_from_faceit)
         self.bracket_tab.set_qualified_provider(self._teams_from_standings)
         tabs.addTab(self.bracket_tab, "Bracket")
         
@@ -2661,246 +2651,6 @@ class TournamentApp(QMainWindow):
         text = (value or "").strip().lower()
         text = re.sub(r"[^a-z0-9]+", "", text)
         return text
-
-    def _extract_faceit_championship_ids(self, championship_url: str) -> List[str]:
-        url = (championship_url or "").strip()
-        if not url:
-            return []
-        candidates: List[str] = []
-        candidates.extend(re.findall(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", url))
-        path_match = re.search(r"/championship/([^/?#]+)", url, flags=re.IGNORECASE)
-        if path_match:
-            candidates.append(path_match.group(1).strip())
-        out: List[str] = []
-        seen = set()
-        for item in candidates:
-            v = (item or "").strip()
-            if not v:
-                continue
-            for variant in (v, v.lower()):
-                if variant not in seen:
-                    seen.add(variant)
-                    out.append(variant)
-        return out
-
-    def _get_faceit_api_key(self) -> str:
-        return (self.faceit_api_key.text() or "").strip()
-
-    def _get_faceit_championship_url(self) -> str:
-        group_url = (self.faceit_group_stage.text() or "").strip()
-        playoffs_url = (self.faceit_playoffs.text() or "").strip()
-        return group_url or playoffs_url
-
-    def _normalize_faceit_standings_row(self, row: dict) -> StandingsRow:
-        team = row.get("team") or row.get("entity") or row.get("faction") or row.get("leaderboard_item") or {}
-        stats = row.get("stats") or row.get("stat") or row.get("statistics") or team.get("stats") or row
-
-        has_team_identity = bool(team) or any(
-            str(row.get(k) or "").strip()
-            for k in ("team_name", "entity_name", "team_id", "entity_id", "faction_id")
-        )
-
-        team_name = str(
-            row.get("team_name") or row.get("entity_name") or
-            team.get("name") or team.get("nickname") or team.get("entity_name") or
-            (row.get("name") if has_team_identity else "") or ""
-        ).strip()
-        team_abbr = str(
-            row.get("abbr") or row.get("team_abbr") or row.get("tag") or
-            team.get("abbreviation") or team.get("tag") or ""
-        ).strip()
-        logo_url = str(
-            row.get("logo") or row.get("avatar") or row.get("entity_avatar") or
-            team.get("avatar") or team.get("logo") or team.get("image") or team.get("entity_avatar") or ""
-        ).strip()
-
-        def _num(*keys):
-            for k in keys:
-                for src in (row, team, stats):
-                    if isinstance(src, dict) and k in src and str(src.get(k, "")).strip() != "":
-                        try:
-                            return int(float(str(src.get(k)).strip()))
-                        except Exception:
-                            pass
-            return 0
-
-        wins = _num("wins", "W", "win", "won")
-        losses = _num("losses", "L", "loss", "lost")
-        map_diff = _num("map_diff", "maps_diff", "diff", "+/-", "mapDifference")
-        if map_diff == 0:
-            maps_won = _num("maps_won", "mapsFor", "mf", "maps_for")
-            maps_lost = _num("maps_lost", "mapsAgainst", "ma", "maps_against")
-            if maps_won or maps_lost:
-                map_diff = maps_won - maps_lost
-        points = _num("points", "pts", "score")
-
-        logo_path = self._download_faceit_team_logo(logo_url, team_name, "standings") if logo_url else None
-
-        return StandingsRow(
-            team_name=team_name,
-            abbr=team_abbr,
-            logo_path=logo_path,
-            wins=wins,
-            losses=losses,
-            map_diff=map_diff,
-            points=points,
-            status="",
-            rank=0,
-        )
-
-    def _extract_faceit_standings_rows(self, payload: dict) -> List[dict]:
-        rows: List[dict] = []
-
-        def _collect(value):
-            if isinstance(value, list):
-                for item in value:
-                    _collect(item)
-                return
-            if not isinstance(value, dict):
-                return
-
-            for key in ("items", "results", "standings", "entries", "leaderboard", "leaderboard_items", "leaderboardItems", "ranking", "table", "data"):
-                vv = value.get(key)
-                if isinstance(vv, list):
-                    for item in vv:
-                        if isinstance(item, dict):
-                            rows.append(item)
-
-            # Keep only dicts that look like team rows (avoid championship/meta objects).
-            has_team_obj = any(isinstance(value.get(k), dict) for k in ("team", "entity", "faction", "leaderboard_item"))
-            has_team_id = any(str(value.get(k) or "").strip() for k in ("team_id", "entity_id", "faction_id", "team_name", "entity_name"))
-            has_standing_stats = any(
-                str((value.get("stats") or value.get("statistics") or value).get(k, "")).strip()
-                for k in ("wins", "losses", "points", "map_diff", "maps_diff", "W", "L")
-                if isinstance(value.get("stats") or value.get("statistics") or value, dict)
-            )
-            if has_team_obj or has_team_id or (has_standing_stats and str(value.get("name") or "").strip()):
-                rows.append(value)
-
-            for sub in value.values():
-                if isinstance(sub, (dict, list)):
-                    _collect(sub)
-
-        _collect(payload or {})
-
-        unique = []
-        seen = set()
-        for item in rows:
-            key = str(item.get("entity_id") or item.get("team_id") or item.get("name") or item.get("entity_name") or "").strip().lower()
-            if key and key in seen:
-                continue
-            if key:
-                seen.add(key)
-            unique.append(item)
-        return unique
-
-    def _fetch_faceit_championship_standings(self, championship_url: str, api_key: str) -> Dict[str, object]:
-        champ_ids = self._extract_faceit_championship_ids(championship_url)
-        if not champ_ids or not api_key:
-            return {"name": "", "rows": [], "error": "Missing championship URL or API key."}
-
-        import urllib.request, urllib.error, urllib.parse, json
-
-        def _request_json(endpoint: str) -> dict:
-            req = urllib.request.Request(
-                endpoint,
-                headers={"Authorization": f"Bearer {api_key}"},
-            )
-            with urllib.request.urlopen(req, timeout=10.0) as resp:
-                return json.loads(resp.read().decode("utf-8", errors="ignore"))
-
-        def _normalize_rows(payload: dict) -> List[StandingsRow]:
-            out: List[StandingsRow] = []
-            for item in self._extract_faceit_standings_rows(payload):
-                if not isinstance(item, dict):
-                    continue
-                row = self._normalize_faceit_standings_row(item)
-                if row.team_name:
-                    out.append(row)
-            return out
-
-        last_error = ""
-        for champ_id in champ_ids:
-            championship_name = ""
-            all_rows: List[StandingsRow] = []
-
-            try:
-                meta_endpoint = f"https://open.faceit.com/data/v4/championships/{champ_id}"
-                meta_data = _request_json(meta_endpoint)
-                championship_name = str(meta_data.get("name") or "").strip()
-                all_rows.extend(_normalize_rows(meta_data))
-            except urllib.error.HTTPError as e:
-                last_error = f"HTTP {e.code} from https://open.faceit.com/data/v4/championships/{champ_id}"
-            except Exception as e:
-                last_error = str(e)
-
-            try:
-                lb_endpoint = f"https://open.faceit.com/data/v4/leaderboards/championships/{champ_id}"
-                lb_data = _request_json(lb_endpoint)
-                if not championship_name:
-                    championship_name = str(lb_data.get("name") or lb_data.get("championship_name") or "").strip()
-                all_rows.extend(_normalize_rows(lb_data))
-
-                groups = lb_data.get("groups") or lb_data.get("leaderboard_groups") or []
-                group_ids: List[str] = []
-                for g in groups:
-                    if isinstance(g, dict):
-                        gid = str(g.get("group") or g.get("group_id") or g.get("id") or "").strip()
-                    else:
-                        gid = str(g or "").strip()
-                    if gid and gid not in group_ids:
-                        group_ids.append(gid)
-
-                for gid in group_ids:
-                    gid_q = urllib.parse.quote(gid, safe="")
-                    group_endpoint = f"https://open.faceit.com/data/v4/leaderboards/championships/{champ_id}/groups/{gid_q}"
-                    try:
-                        group_data = _request_json(group_endpoint)
-                        all_rows.extend(_normalize_rows(group_data))
-                    except urllib.error.HTTPError as e:
-                        last_error = f"HTTP {e.code} from {group_endpoint}"
-                    except Exception as e:
-                        last_error = str(e)
-            except urllib.error.HTTPError as e:
-                last_error = f"HTTP {e.code} from https://open.faceit.com/data/v4/leaderboards/championships/{champ_id}"
-            except Exception as e:
-                last_error = str(e)
-
-            try:
-                results_endpoint = f"https://open.faceit.com/data/v4/championships/{champ_id}/results"
-                results_data = _request_json(results_endpoint)
-                if not championship_name:
-                    championship_name = str(results_data.get("name") or results_data.get("championship_name") or "").strip()
-                all_rows.extend(_normalize_rows(results_data))
-            except urllib.error.HTTPError as e:
-                last_error = f"HTTP {e.code} from https://open.faceit.com/data/v4/championships/{champ_id}/results"
-            except Exception as e:
-                last_error = str(e)
-
-            dedup: Dict[str, StandingsRow] = {}
-            for row in all_rows:
-                key = (row.team_name or "").strip().lower()
-                if not key:
-                    continue
-                existing = dedup.get(key)
-                if not existing:
-                    dedup[key] = row
-                else:
-                    if not existing.logo_path and row.logo_path:
-                        existing.logo_path = row.logo_path
-                    if not existing.abbr and row.abbr:
-                        existing.abbr = row.abbr
-                    existing.wins = max(int(existing.wins or 0), int(row.wins or 0))
-                    existing.losses = max(int(existing.losses or 0), int(row.losses or 0))
-                    existing.map_diff = int(row.map_diff or existing.map_diff or 0)
-                    existing.points = max(int(existing.points or 0), int(row.points or 0))
-
-            rows = list(dedup.values())
-            if rows:
-                _apply_standings_ranks(rows)
-                return {"name": championship_name, "rows": rows, "error": ""}
-
-        return {"name": "", "rows": [], "error": last_error or "No standings rows returned by FACEIT API (check championship URL/ID)."}
 
     def _extract_faceit_team_ids(self, team_url: str) -> List[str]:
         url = (team_url or "").strip()
@@ -3299,66 +3049,6 @@ class TournamentApp(QMainWindow):
             return out_path
         except Exception:
             return None
-
-    def _import_standings_from_faceit(self):
-        championship_url = self._get_faceit_championship_url()
-        api_key = self._get_faceit_api_key()
-        if not championship_url:
-            QMessageBox.warning(self, "FACEIT import", "Set Group stage or Playoffs FACEIT URL in the Statistics tab.")
-            return
-        if not api_key:
-            QMessageBox.warning(self, "FACEIT import", "Set FACEIT API key in the Statistics tab.")
-            return
-
-        payload = self._fetch_faceit_championship_standings(championship_url, api_key)
-        rows = payload.get("rows") or []
-        if not rows:
-            reason = (payload.get("error") or "").strip()
-            extra = f"\nReason: {reason}" if reason else ""
-            QMessageBox.warning(self, "FACEIT import", "Could not fetch standings data from FACEIT." + extra)
-            return
-
-        current = self.standings_tab.to_settings()
-        groups = current.groups or [StandingsGroup(key="group_1", name="Group 1", rows=[])]
-        groups[0].rows = rows
-        if payload.get("name") and not (current.title or "").strip():
-            current.title = str(payload.get("name") or "").strip()
-        current.rows = list(rows)
-        current.groups = groups
-        self.standings_tab.from_settings(current)
-        self._autosave(self._collect_state())
-        self._update()
-        QMessageBox.information(self, "FACEIT import", f"Imported {len(rows)} standings rows from FACEIT.")
-
-    def _import_bracket_teams_from_faceit(self):
-        championship_url = self._get_faceit_championship_url()
-        api_key = self._get_faceit_api_key()
-        if not championship_url:
-            QMessageBox.warning(self, "FACEIT import", "Set Group stage or Playoffs FACEIT URL in the Statistics tab.")
-            return
-        if not api_key:
-            QMessageBox.warning(self, "FACEIT import", "Set FACEIT API key in the Statistics tab.")
-            return
-
-        payload = self._fetch_faceit_championship_standings(championship_url, api_key)
-        rows = payload.get("rows") or []
-        if not rows:
-            reason = (payload.get("error") or "").strip()
-            extra = f"\nReason: {reason}" if reason else ""
-            QMessageBox.warning(self, "FACEIT import", "Could not fetch bracket teams from FACEIT." + extra)
-            return
-
-        teams = [TeamRef(name=r.team_name, abbr=r.abbr, logo_path=r.logo_path) for r in rows if (r.team_name or "").strip()]
-        if not teams:
-            QMessageBox.warning(self, "FACEIT import", "No bracket teams found in FACEIT data.")
-            return
-
-        for idx, row in enumerate(self.bracket_tab.team_rows):
-            row.set_team(teams[idx] if idx < len(teams) else None)
-        self.bracket_tab._refresh_team_options()
-        self._autosave(self._collect_state())
-        self._update()
-        QMessageBox.information(self, "FACEIT import", f"Imported {min(len(teams), len(self.bracket_tab.team_rows))} bracket teams from FACEIT.")
 
     def _import_team_players_from_faceit(self, slot: str):
         panel = self.team1_panel if slot == "t1" else self.team2_panel
