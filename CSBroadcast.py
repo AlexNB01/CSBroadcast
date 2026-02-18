@@ -2357,15 +2357,15 @@ class TournamentApp(QMainWindow):
             maps_layout.addWidget(mr)
         self._refresh_map_row_team_labels()
 
-        self.import_faceit_btn = QPushButton("Import maps from FACEIT")
+        self.import_faceit_btn = QPushButton("Import picked maps from FACEIT")
         self.import_faceit_btn.clicked.connect(self._import_maps_from_faceit)
         maps_layout.addWidget(self.import_faceit_btn)
 
         match_root.addWidget(maps_box, 4)
 
         bottom = QHBoxLayout()
-        self.reset_btn = QPushButton("Reset")
-        self.reset_btn.clicked.connect(self._reset_all)
+        self.reset_btn = QPushButton("Reset this tab")
+        self.reset_btn.clicked.connect(self._reset_match_tab)
         self.swap_btn = QPushButton("Swap Teams")
         self.swap_btn.clicked.connect(self._swap_teams)
         self.update_btn = QPushButton("Update")
@@ -2850,6 +2850,7 @@ class TournamentApp(QMainWindow):
                 voting_map = ((data.get("voting") or {}).get("map") or {})
                 draft = self._extract_faceit_vote_maps(voting_map, team_map)
                 if draft:
+                    played_maps = []
                     for item in draft:
                         action = (item.get("action") or "").strip().lower()
                         if action not in {"pick", "decider"}:
@@ -2861,7 +2862,9 @@ class TournamentApp(QMainWindow):
                             item["t1"] = int(rr.get("t1") or 0)
                             item["t2"] = int(rr.get("t2") or 0)
                             item["completed"] = bool(rr.get("completed", False))
-                    return draft
+                        played_maps.append(item)
+                    if played_maps:
+                        return played_maps
 
                 rounds = data.get("rounds") or []
                 fallback = []
@@ -4153,10 +4156,9 @@ class TournamentApp(QMainWindow):
     # ---------------------
     # Actions: Reset & Swap
     # ---------------------
-    def _reset_all(self):
+    def _reset_match_tab(self):
         self.team1_panel.reset()
         self.team2_panel.reset()
-        self._reset_statistics_tab()
         self.team1_panel.color_hex = "#55aaff"; self.team1_panel._apply_color_style()
         self.team2_panel.color_hex = "#ff557f"; self.team2_panel._apply_color_style()
         for mr in self.map_rows:
