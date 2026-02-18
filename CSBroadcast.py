@@ -854,16 +854,6 @@ class GeneralTab(QWidget):
         super().__init__()
         root = QVBoxLayout(self)
 
-        bo_box = QGroupBox("Number of Maps")
-        bo_lay = QHBoxLayout(bo_box)
-        self.maps_count = QSpinBox()
-        self.maps_count.setRange(1, 7)
-        self.maps_count.setValue(3)
-        bo_lay.addWidget(QLabel("Maps:"))
-        bo_lay.addWidget(self.maps_count)
-        bo_lay.addStretch(1)
-        root.addWidget(bo_box)
-
 
         people_box = QGroupBox("Casters & Host")
         people = QGridLayout(people_box)
@@ -983,7 +973,6 @@ class GeneralTab(QWidget):
 
     def to_settings(self) -> GeneralSettings:
         return GeneralSettings(
-            first_to=int(self.maps_count.value()),
             host=self.host.text().strip(),
             caster1=self.caster1.text().strip(),
             caster2=self.caster2.text().strip(),
@@ -995,13 +984,6 @@ class GeneralTab(QWidget):
 
 
     def from_settings(self, s: GeneralSettings):
-        try:
-            n = int(getattr(s, "first_to", 3) or 3)
-        except ValueError:
-            n = 3
-        n = max(1, min(7, n))
-        self.maps_count.setValue(n)
-
         self.host.setText(s.host or "")
         self.caster1.setText(s.caster1 or "")
         self.caster2.setText(s.caster2 or "")
@@ -3423,9 +3405,7 @@ class TournamentApp(QMainWindow):
     def _export_waiting(self, state: dict):
         root = self._scoreboard_root()
         wdir = os.path.join(root, "Waiting")
-        pldir = os.path.join(wdir, "Playlist")
         os.makedirs(wdir, exist_ok=True)
-        os.makedirs(pldir, exist_ok=True)
 
         w: dict = state.get("waiting") or {}
         ws = WaitingSettings(**w) if isinstance(w, dict) else WaitingSettings()
@@ -3464,21 +3444,9 @@ class TournamentApp(QMainWindow):
             for fn in sorted(os.listdir(src_dir)):
                 if os.path.splitext(fn)[1].lower() in exts:
                     filenames.append(fn)
-                    src = os.path.join(src_dir, fn)
-                    dst = os.path.join(pldir, fn)
-                    try:
-                        if (not os.path.exists(dst)) or (os.path.getmtime(src) > os.path.getmtime(dst)):
-                            shutil.copy2(src, dst)
-                    except Exception:
-                        pass
-
-        for old in os.listdir(pldir):
-            if old not in filenames:
-                try: os.remove(os.path.join(pldir, old))
-                except Exception: pass
 
         self._write_txt(os.path.join(wdir, "videos.txt"), "\n".join(filenames) + ("\n" if filenames else ""))
-        self._write_txt(os.path.join(wdir, "videos_dir.txt"), "")
+        self._write_txt(os.path.join(wdir, "videos_dir.txt"), (src_dir or "").replace("\\", "/"))
         self._write_txt(os.path.join(wdir, "timer_running.txt"),
                 "1" if bool(ws.timer_running) else "0")
 
@@ -3765,7 +3733,8 @@ class TournamentApp(QMainWindow):
     def build_match_text(self, state: dict) -> str:
         """
         Muoto: Team1 (t1Total - t2Total) Team2    -    Map1 (x - y)    -    Map2 (...) ...
-        Kirjoittaa kaikki GUIhin syötetyt kartat järjestyksessä. Ottaa map-nimen vain jos se on annettu.
+        Kirjoittaa vain pelattavat kartat (ei Ban-rivejä) järjestyksessä.
+        Ottaa map-nimen vain jos se on annettu.
         """
         t1 = state.get("team1", {}) or {}
         t2 = state.get("team2", {}) or {}
@@ -3780,6 +3749,9 @@ class TournamentApp(QMainWindow):
 
         for item in maps:
             if not item:
+                continue
+            action = (item.get("draft_action") or "").strip().lower()
+            if action == "ban":
                 continue
             name = (item.get("map") or "").strip()
             m1 = int(item.get("t1") or 0)
@@ -4452,6 +4424,14 @@ class TournamentApp(QMainWindow):
 
 
 
+    def _count_pick_decider_maps(self) -> int:
+        count = 0
+        for mr in self.map_rows:
+            action = (mr.draft_action.currentText() or "").strip().lower()
+            if action in {"pick", "decider"}:
+                count += 1
+        return max(1, min(7, count))
+
     def _first_uncompleted_pick_or_decider(self, maps: List[dict]) -> Optional[int]:
         for item in maps or []:
             action = (item.get("draft_action") or "").strip().lower()
@@ -4526,6 +4506,7 @@ class TournamentApp(QMainWindow):
             }
         }
         general = self.general_tab.to_settings()
+        general.first_to = self._count_pick_decider_maps()
         state["general"] = asdict(general)
         waiting = self.waiting_tab.to_settings()
         state["waiting"] = asdict(waiting)
@@ -4786,7 +4767,9 @@ class TournamentApp(QMainWindow):
         self._last_state_for_diff = state
         
     def _update_general_only(self):
-        g = asdict(self.general_tab.to_settings())
+        settings = self.general_tab.to_settings()
+        settings.first_to = self._count_pick_decider_maps()
+        g = asdict(settings)
         self._export_general(GeneralSettings(**g))
         self._export_status_text({"general": g})
         full = {
@@ -4814,7 +4797,9 @@ class TournamentApp(QMainWindow):
     def _update_waiting_only(self):
         w = asdict(self.waiting_tab.to_settings())
         self._export_waiting({"waiting": w})
-        g = asdict(self.general_tab.to_settings())
+        settings = self.general_tab.to_settings()
+        settings.first_to = self._count_pick_decider_maps()
+        g = asdict(settings)
         self._export_status_text({"general": g})
         self._autosave(self._collect_state())
         full = {
