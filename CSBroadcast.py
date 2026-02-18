@@ -4,6 +4,8 @@ from dataclasses import dataclass, asdict
 from typing import Callable, Dict, List, Optional
 
 from PyQt5.QtCore import Qt, QStandardPaths, pyqtSignal, QTimer
+
+PLAYER_SLOTS = 5
 from PyQt5.QtGui import QPixmap, QColor
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -73,11 +75,12 @@ class Team:
     logo_path: Optional[str] = None
     score: int = 0
     color_hex: str = "#FFFFFF"
+    faceit_link: str = ""
     players: List[Player] = None
 
     def __post_init__(self):
         if self.players is None:
-            self.players = [Player() for _ in range(8)]
+            self.players = [Player() for _ in range(PLAYER_SLOTS)]
 
 # ---- General tab data ----
 @dataclass
@@ -585,6 +588,8 @@ class PlayerRow(QWidget):
         row.addWidget(self.faceit_link, 1)
 
 class TeamPanel(QGroupBox):
+    import_players_requested = pyqtSignal()
+
     def __init__(self, title: str, default_color: str = "#FFFFFF"):
         super().__init__(title)
         lay = QVBoxLayout(self)
@@ -593,6 +598,7 @@ class TeamPanel(QGroupBox):
         self.team_name = QLineEdit(); self.team_name.setPlaceholderText("Team name")
         self.team_abbr = QLineEdit(); self.team_abbr.setPlaceholderText("ABC")
         self.team_abbr.setMaxLength(6)
+        self.team_faceit_link = QLineEdit(); self.team_faceit_link.setPlaceholderText("Team FACEIT link")
         self.score = QSpinBox(); self.score.setRange(0, 200)
         self.logo_preview = QLabel(); self.logo_preview.setFixedSize(120, 120)
         self.logo_preview.setStyleSheet("QLabel{border:1px solid #DDD;border-radius:8px;background:#FFF}")
@@ -608,8 +614,10 @@ class TeamPanel(QGroupBox):
         left = QVBoxLayout()
         left.addWidget(QLabel("Name"))
         left.addWidget(self.team_name)
-        left.addWidget(QLabel("Abbreviation"))          
+        left.addWidget(QLabel("Abbreviation"))
         left.addWidget(self.team_abbr)
+        left.addWidget(QLabel("Team FACEIT link"))
+        left.addWidget(self.team_faceit_link)
 
         score_row = QHBoxLayout(); score_row.addWidget(QLabel("Score")); score_row.addWidget(self.score)
         color_row = QHBoxLayout(); color_row.addWidget(QLabel("Team Color")); color_row.addWidget(self.color_btn)
@@ -623,11 +631,15 @@ class TeamPanel(QGroupBox):
 
         grid = QVBoxLayout()
         self.player_rows: List[PlayerRow] = []
-        for i in range(1, 9):
+        for i in range(1, PLAYER_SLOTS + 1):
             pr = PlayerRow(i)
             self.player_rows.append(pr)
             grid.addWidget(pr)
         lay.addLayout(grid)
+
+        self.import_players_btn = QPushButton("Import players from FACEIT")
+        self.import_players_btn.clicked.connect(self.import_players_requested.emit)
+        lay.addWidget(self.import_players_btn)
 
         spacer = QWidget(); spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         lay.addWidget(spacer)
@@ -669,6 +681,7 @@ class TeamPanel(QGroupBox):
         t.logo_path = self.logo_path
         t.score = self.score.value()
         t.color_hex = self.color_hex
+        t.faceit_link = self.team_faceit_link.text().strip()
 
         t.players = []
         for pr in self.player_rows:
@@ -683,6 +696,7 @@ class TeamPanel(QGroupBox):
         self.team_name.setText(t.name)
         self.team_abbr.setText(getattr(t, "abbr", "") or "")
         self.logo_path = t.logo_path
+        self.team_faceit_link.setText(getattr(t, "faceit_link", "") or "")
         if t.logo_path:
             pix = QPixmap(t.logo_path)
             if not pix.isNull():
@@ -692,13 +706,14 @@ class TeamPanel(QGroupBox):
         self.score.setValue(t.score)
         self.color_hex = t.color_hex or getattr(self, "default_color", "#FFFFFF")
         self._apply_color_style()
-        for pr, pdata in zip(self.player_rows, t.players + [Player()] * (8 - len(t.players))):
+        for pr, pdata in zip(self.player_rows, t.players + [Player()] * (PLAYER_SLOTS - len(t.players))):
             pr.name.setText(pdata.name)
             pr.faceit_link.setText(getattr(pdata, "faceit_link", "") or "")
 
     def reset(self):
         self.team_name.clear()
         self.team_abbr.clear()
+        self.team_faceit_link.clear()
         self.score.setValue(0)
         self.logo_path = None
         self.logo_preview.clear()
@@ -2342,6 +2357,8 @@ class TournamentApp(QMainWindow):
         self.team2_panel = TeamPanel("Team 2", default_color="#ff557f")
         self.team1_panel.team_name.textChanged.connect(self._refresh_map_row_team_labels)
         self.team2_panel.team_name.textChanged.connect(self._refresh_map_row_team_labels)
+        self.team1_panel.import_players_requested.connect(lambda: self._import_team_players_from_faceit("t1"))
+        self.team2_panel.import_players_requested.connect(lambda: self._import_team_players_from_faceit("t2"))
         splitter.addWidget(self.team1_panel)
         splitter.addWidget(self.team2_panel)
         splitter.setSizes([700, 700])
@@ -2635,9 +2652,30 @@ class TournamentApp(QMainWindow):
         text = re.sub(r"[^a-z0-9]+", "", text)
         return text
 
+    def _extract_faceit_team_ids(self, team_url: str) -> List[str]:
+        url = (team_url or "").strip()
+        if not url:
+            return []
+        candidates: List[str] = []
+        for m in re.findall(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", url):
+            candidates.append(m.strip())
+        slug_match = re.search(r"/teams?/([^/?#]+)", url, flags=re.IGNORECASE)
+        if slug_match:
+            candidates.append(slug_match.group(1).strip())
+        out: List[str] = []
+        seen = set()
+        for v in candidates:
+            key = (v or "").strip().lower()
+            if key and key not in seen:
+                seen.add(key)
+                out.append(key)
+        return out
+
     def _build_faceit_team_key_map(self, teams: dict) -> Dict[str, str]:
         gui_t1 = self._normalize_team_name_key(self.team1_panel.team_name.text())
         gui_t2 = self._normalize_team_name_key(self.team2_panel.team_name.text())
+        gui_t1_ids = self._extract_faceit_team_ids(self.team1_panel.team_faceit_link.text())
+        gui_t2_ids = self._extract_faceit_team_ids(self.team2_panel.team_faceit_link.text())
 
         f1 = teams.get("faction1") or {}
         f2 = teams.get("faction2") or {}
@@ -2660,12 +2698,21 @@ class TournamentApp(QMainWindow):
 
         a1 = _aliases(f1)
         a2 = _aliases(f2)
+        a1_low = {str(x).strip().lower() for x in a1 if str(x).strip()}
+        a2_low = {str(x).strip().lower() for x in a2 if str(x).strip()}
         n1 = {self._normalize_team_name_key(x) for x in a1 if self._normalize_team_name_key(x)}
         n2 = {self._normalize_team_name_key(x) for x in a2 if self._normalize_team_name_key(x)}
 
-        # Match GUI teams to FACEIT factions using names; fallback to slot order.
+        # Match GUI teams to FACEIT factions, prefer explicit team links over names.
         f1_key, f2_key = "t1", "t2"
-        if gui_t1 and gui_t2:
+        t1_in_f1 = any(cid in a1_low for cid in gui_t1_ids)
+        t1_in_f2 = any(cid in a2_low for cid in gui_t1_ids)
+        t2_in_f1 = any(cid in a1_low for cid in gui_t2_ids)
+        t2_in_f2 = any(cid in a2_low for cid in gui_t2_ids)
+
+        if (t1_in_f2 and not t1_in_f1) or (t2_in_f1 and not t2_in_f2):
+            f1_key, f2_key = "t2", "t1"
+        elif gui_t1 and gui_t2:
             if gui_t1 in n2 and gui_t2 in n1:
                 f1_key, f2_key = "t2", "t1"
             elif gui_t1 in n1 and gui_t2 in n2:
@@ -2685,6 +2732,11 @@ class TournamentApp(QMainWindow):
 
         _set_aliases(a1, f1_key)
         _set_aliases(a2, f2_key)
+
+        for cid in gui_t1_ids:
+            mapping[cid] = "t1"
+        for cid in gui_t2_ids:
+            mapping[cid] = "t2"
 
         mapping["faction1"] = f1_key
         mapping["faction2"] = f2_key
@@ -2887,6 +2939,102 @@ class TournamentApp(QMainWindow):
             except Exception:
                 continue
         return []
+
+    def _extract_faceit_playing_players(self, match_data: dict) -> Dict[str, List[Player]]:
+        teams = match_data.get("teams") or {}
+        team_map = self._build_faceit_team_key_map(teams)
+        out: Dict[str, List[Player]] = {"t1": [], "t2": []}
+        seen = {"t1": set(), "t2": set()}
+
+        def _append(slot: str, nickname: str, player_id: str = ""):
+            if slot not in out or len(out[slot]) >= PLAYER_SLOTS:
+                return
+            nick = (nickname or "").strip()
+            if not nick:
+                return
+            key = nick.lower()
+            if key in seen[slot]:
+                return
+            seen[slot].add(key)
+            faceit_link = ""
+            if nick:
+                faceit_link = f"https://www.faceit.com/en/players/{nick}"
+            elif player_id:
+                faceit_link = f"https://www.faceit.com/en/players/{player_id}"
+            out[slot].append(Player(name=nick, faceit_link=faceit_link))
+
+        rounds = match_data.get("rounds") or []
+        for rnd in rounds:
+            teams_list = rnd.get("teams") or rnd.get("results") or []
+            if isinstance(teams_list, dict):
+                teams_list = list(teams_list.values())
+            for team_item in teams_list:
+                if not isinstance(team_item, dict):
+                    continue
+                tid = str(team_item.get("team_id") or team_item.get("faction_id") or team_item.get("id") or team_item.get("faction") or team_item.get("name") or "").strip().lower()
+                slot = team_map.get(tid, "") or team_map.get(self._normalize_team_name_key(tid), "")
+                for p in (team_item.get("players") or []):
+                    nick = str(p.get("nickname") or p.get("name") or "").strip()
+                    pid = str(p.get("player_id") or p.get("id") or "").strip()
+                    _append(slot, nick, pid)
+
+        if any(out.values()):
+            return out
+
+        # Fallback to roster if round-level players are missing from API response.
+        for faction, slot in (("faction1", team_map.get("faction1", "t1")), ("faction2", team_map.get("faction2", "t2"))):
+            team_obj = teams.get(faction) or {}
+            for p in (team_obj.get("roster") or []):
+                nick = str(p.get("nickname") or p.get("name") or "").strip()
+                pid = str(p.get("player_id") or p.get("id") or "").strip()
+                _append(slot, nick, pid)
+        return out
+
+    def _import_team_players_from_faceit(self, slot: str):
+        panel = self.team1_panel if slot == "t1" else self.team2_panel
+        url = (self.faceit_match_page.text() or "").strip()
+        api_key = (self.faceit_api_key.text() or "").strip()
+        if not url:
+            QMessageBox.warning(self, "FACEIT import", "Aseta ensin ottelun FACEIT-linkki Statistics-välilehdellä (Match page).")
+            return
+        if not api_key:
+            QMessageBox.warning(self, "FACEIT import", "Aseta FACEIT API key Statistics-välilehdellä.")
+            return
+
+        match_ids = self._extract_faceit_match_ids(url)
+        if not match_ids:
+            QMessageBox.warning(self, "FACEIT import", "Ottelun FACEIT-linkistä ei löytynyt match ID:tä.")
+            return
+
+        import urllib.request, urllib.error, json
+        players_by_slot = None
+        for match_id in match_ids:
+            try:
+                req = urllib.request.Request(
+                    f"https://open.faceit.com/data/v4/matches/{match_id}",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                )
+                with urllib.request.urlopen(req, timeout=8.0) as resp:
+                    data = json.loads(resp.read().decode("utf-8", errors="ignore"))
+                players_by_slot = self._extract_faceit_playing_players(data)
+                if players_by_slot:
+                    break
+            except urllib.error.HTTPError:
+                continue
+            except Exception:
+                continue
+
+        if not players_by_slot or not players_by_slot.get(slot):
+            QMessageBox.warning(self, "FACEIT import", "Pelaajia ei löytynyt FACEIT-datasta valitulle tiimille.")
+            return
+
+        for i, pr in enumerate(panel.player_rows):
+            pdata = players_by_slot[slot][i] if i < len(players_by_slot[slot]) else Player()
+            pr.name.setText(pdata.name)
+            pr.faceit_link.setText(getattr(pdata, "faceit_link", "") or "")
+
+        self._autosave(self._collect_state())
+        QMessageBox.information(self, "FACEIT import", f"Tuotiin {min(len(players_by_slot[slot]), PLAYER_SLOTS)} pelaajaa.")
 
     def _import_maps_from_faceit(self):
         url = (self.faceit_match_page.text() or "").strip()
@@ -3580,6 +3728,7 @@ class TournamentApp(QMainWindow):
             "name": t.name,
             "abbr": t.abbr,
             "logo_png": logo_name if t.logo_path else None,
+            "faceit_link": (t.faceit_link or "").strip(),
             "players": [
                 {
                     "name": p.name,
@@ -3623,7 +3772,7 @@ class TournamentApp(QMainWindow):
                 faceit_link=p.get("faceit_link", p.get("faceit", "")),
                 role=p.get("role", ""),
             ))
-        while len(players) < 8:
+        while len(players) < PLAYER_SLOTS:
             players.append(Player())
 
         t = Team(
@@ -3631,6 +3780,7 @@ class TournamentApp(QMainWindow):
             abbr=data.get("abbr",""),
             logo_path=None,
             score=keep_score,
+            faceit_link=(data.get("faceit_link") or "").strip(),
             players=players,
         )
 
@@ -4141,13 +4291,13 @@ class TournamentApp(QMainWindow):
             json.dump(self._compose_statistics_payload(state, existing_match_stats), f, ensure_ascii=False, indent=2)
 
         t1_players = (state.get("team1") or {}).get("players") or []
-        for i in range(8):
+        for i in range(PLAYER_SLOTS):
             p = t1_players[i] if i < len(t1_players) else {}
             self._write_txt(os.path.join(match_dir, f"T1P{i+1}Name.txt"), (p.get("name") or "").strip())
             self._write_txt(os.path.join(match_dir, f"T1P{i+1}Faceit.txt"), (p.get("faceit_link") or "").strip())
 
         t2_players = (state.get("team2") or {}).get("players") or []
-        for i in range(8):
+        for i in range(PLAYER_SLOTS):
             p = t2_players[i] if i < len(t2_players) else {}
             self._write_txt(os.path.join(match_dir, f"T2P{i+1}Name.txt"), (p.get("name") or "").strip())
             self._write_txt(os.path.join(match_dir, f"T2P{i+1}Faceit.txt"), (p.get("faceit_link") or "").strip())
@@ -4297,7 +4447,7 @@ class TournamentApp(QMainWindow):
         self.maps = {k: Asset(**v) for k, v in assets.get("maps", {}).items()}
         self._on_assets_changed()
 
-        team_allowed = {"name", "abbr", "logo_path", "score", "color_hex"}
+        team_allowed = {"name", "abbr", "logo_path", "score", "color_hex", "faceit_link"}
         t1 = Team(**{k: v for k, v in state.get("team1", {}).items() if k in team_allowed})
         t1.players = [Player(**p) for p in state.get("team1", {}).get("players", [])]
         t2 = Team(**{k: v for k, v in state.get("team2", {}).items() if k in team_allowed})
