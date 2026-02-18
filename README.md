@@ -8,7 +8,7 @@ It runs as packaged Windows executables and serves all overlay pages from a loca
 ## Quick Start
 
 ### Install
-1. Download and run **CSBroadcast-Setup.exe** from this repository’s Releases page.
+1. Download and run [**CSBroadcast-Setup.exe** from this repository’s Releases page](https://github.com/AlexNB01/CSBroadcast/releases/download/v1.0/CSBroadcast-Setup.exe).
 2. Install to the default folder.
 3. Always launch with **`launch.bat`**.
 
