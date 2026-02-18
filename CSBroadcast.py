@@ -637,7 +637,7 @@ class TeamPanel(QGroupBox):
             grid.addWidget(pr)
         lay.addLayout(grid)
 
-        self.import_players_btn = QPushButton("Import players from FACEIT")
+        self.import_players_btn = QPushButton("Import from FACEIT")
         self.import_players_btn.clicked.connect(self.import_players_requested.emit)
         lay.addWidget(self.import_players_btn)
 
@@ -2990,6 +2990,66 @@ class TournamentApp(QMainWindow):
                 _append(slot, nick, pid)
         return out
 
+    def _extract_faceit_team_details(self, match_data: dict) -> Dict[str, dict]:
+        teams = match_data.get("teams") or {}
+        team_map = self._build_faceit_team_key_map(teams)
+        details: Dict[str, dict] = {"t1": {}, "t2": {}}
+
+        def _pick_logo(team_obj: dict) -> str:
+            for key in ("avatar", "logo", "image", "image_url", "picture", "profile_image"):
+                v = str(team_obj.get(key) or "").strip()
+                if v:
+                    return v
+            return ""
+
+        def _pick_id(team_obj: dict) -> str:
+            for key in ("faction_id", "team_id", "id"):
+                v = str(team_obj.get(key) or "").strip()
+                if v:
+                    return v
+            return ""
+
+        for faction in ("faction1", "faction2"):
+            team_obj = teams.get(faction) or {}
+            slot = team_map.get(faction, "")
+            if slot not in details:
+                continue
+            team_id = _pick_id(team_obj)
+            team_name = str(team_obj.get("name") or team_obj.get("nickname") or "").strip()
+            logo_url = _pick_logo(team_obj)
+            faceit_link = f"https://www.faceit.com/en/teams/{team_id}" if team_id else ""
+            details[slot] = {
+                "name": team_name,
+                "logo_url": logo_url,
+                "faceit_link": faceit_link,
+            }
+        return details
+
+    def _download_faceit_team_logo(self, logo_url: str, team_name: str, slot: str) -> Optional[str]:
+        url = (logo_url or "").strip()
+        if not url:
+            return None
+        try:
+            import urllib.request
+            base = os.environ.get("SOWB_ROOT") or _app_base()
+            out_dir = os.path.join(base, "Scoreboard", "Temp", "Team Logos")
+            os.makedirs(out_dir, exist_ok=True)
+            ext = os.path.splitext(url.split("?", 1)[0])[1].lower()
+            if ext not in {".png", ".jpg", ".jpeg", ".webp"}:
+                ext = ".png"
+            safe_name = self._slugify(team_name or slot or "team")
+            out_path = os.path.join(out_dir, f"faceit-{slot}-{safe_name}{ext}")
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=8.0) as resp:
+                data = resp.read()
+            if not data:
+                return None
+            with open(out_path, "wb") as f:
+                f.write(data)
+            return out_path
+        except Exception:
+            return None
+
     def _import_team_players_from_faceit(self, slot: str):
         panel = self.team1_panel if slot == "t1" else self.team2_panel
         url = (self.faceit_match_page.text() or "").strip()
@@ -3008,6 +3068,7 @@ class TournamentApp(QMainWindow):
 
         import urllib.request, urllib.error, json
         players_by_slot = None
+        team_details = None
         for match_id in match_ids:
             try:
                 req = urllib.request.Request(
@@ -3017,6 +3078,7 @@ class TournamentApp(QMainWindow):
                 with urllib.request.urlopen(req, timeout=8.0) as resp:
                     data = json.loads(resp.read().decode("utf-8", errors="ignore"))
                 players_by_slot = self._extract_faceit_playing_players(data)
+                team_details = self._extract_faceit_team_details(data)
                 if players_by_slot:
                     break
             except urllib.error.HTTPError:
@@ -3028,13 +3090,31 @@ class TournamentApp(QMainWindow):
             QMessageBox.warning(self, "FACEIT import", "Pelaajia ei löytynyt FACEIT-datasta valitulle tiimille.")
             return
 
+        details = (team_details or {}).get(slot) or {}
+        imported_team_name = (details.get("name") or "").strip()
+        if imported_team_name:
+            panel.team_name.setText(imported_team_name)
+
+        imported_team_link = (details.get("faceit_link") or "").strip()
+        if imported_team_link and not panel.team_faceit_link.text().strip():
+            panel.team_faceit_link.setText(imported_team_link)
+
+        logo_path = self._download_faceit_team_logo((details.get("logo_url") or "").strip(), imported_team_name, slot)
+        if logo_path:
+            panel.logo_path = logo_path
+            pix = QPixmap(logo_path)
+            if not pix.isNull():
+                panel.logo_preview.setPixmap(
+                    pix.scaled(panel.logo_preview.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                )
+
         for i, pr in enumerate(panel.player_rows):
             pdata = players_by_slot[slot][i] if i < len(players_by_slot[slot]) else Player()
             pr.name.setText(pdata.name)
             pr.faceit_link.setText(getattr(pdata, "faceit_link", "") or "")
 
         self._autosave(self._collect_state())
-        QMessageBox.information(self, "FACEIT import", f"Tuotiin {min(len(players_by_slot[slot]), PLAYER_SLOTS)} pelaajaa.")
+        QMessageBox.information(self, "FACEIT import", f"Tuotiin {min(len(players_by_slot[slot]), PLAYER_SLOTS)} pelaajaa sekä tiimin tiedot.")
 
     def _import_maps_from_faceit(self):
         url = (self.faceit_match_page.text() or "").strip()
