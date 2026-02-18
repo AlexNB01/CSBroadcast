@@ -216,6 +216,22 @@ function hexToRgb(hexStr){ const m=(hexStr||"").trim().replace(/^#/,'').toLowerC
   const s=m.length===3?m.split('').map(c=>c+c).join(''):m; const n=parseInt(s,16);
   if(isNaN(n)||s.length!==6) return null; return [(n>>16)&255,(n>>8)&255,n&255]; }
 const setBg=(el,url)=>el&&(el.style.backgroundImage=`url('${url}?_=${Date.now()}')`);
+const normRelPath=p=>(p||"").replace(/^\/+/ ,"").replace(/\\/g,"/");
+const resolveMapImagePath=(meta,mapName)=>{
+  const imageRef = normRelPath(meta?.image || "");
+  if(imageRef){
+    if(imageRef.toLowerCase().startsWith("scoreboard/")) return `${ROOT}/${imageRef}`;
+    if(imageRef.toLowerCase().startsWith("maps/")) return `${SB}/${imageRef}`;
+    return `${MAPS}/${imageRef.split('/').pop()}`;
+  }
+  return `${MAPS}/${slug(meta?.slug || mapName)}.png`;
+};
+const normalizePick=(pickRaw)=>{
+  const pick=((pickRaw||"")+"").trim().toUpperCase();
+  if(pick==="TEAM 1") return "T1";
+  if(pick==="TEAM 2") return "T2";
+  return pick;
+};
 
 function adjustMapsBottom(){
   const statusEl = document.getElementById("status");
@@ -287,141 +303,127 @@ async function upT2(){
 let _prevSig = null;
 
 async function renderMaps(){
-  const mapsManifest  = await readJSON(SB + "/Maps/index.json");
-  const modesManifest = await readJSON(SB + "/Gametypes/index.json");
+  const [mapsManifest, modesManifest, state] = await Promise.all([
+    readJSON(SB + "/Maps/index.json"),
+    readJSON(SB + "/Gametypes/index.json"),
+    readJSON(MATCH + "/match.json"),
+  ]);
   const bySlug = (arr=[]) => Object.fromEntries((arr||[]).map(x => [ (x.slug||"").toLowerCase(), x ]));
   const mapsBySlug  = bySlug((mapsManifest || {}).maps || []);
   const modesByName = Object.fromEntries(((modesManifest || {}).modes || []).map(m => [ (m.name||"").toLowerCase(), (m.slug||"").toLowerCase() ]));
   const root = document.getElementById("maps");
-  const n = parseInt((await read(GENERAL + "/first_to.txt")).trim(), 10) || 3;
-  const count = Math.max(1, Math.min(7, n));
 
-  const items = [];
-  for(let i=1;i<=count;i++){
-    const path=`${MATCH}/Map${i}.txt`;
-    const kv={};
-    if(await ok(path)){
-      (await read(path)).split(/\r?\n/).forEach(line=>{
-        const m=line.match(/^\s*([^=#]+)\s*=\s*(.+?)\s*$/);
-        if(m) kv[m[1].trim()]=m[2].trim();
-      });
-    }
-	items.push({
-	  idx: i,
-	  name: (kv.Name||"").trim(),
-	  t1: parseInt(kv.T1||"0",10)||0,
-	  t2: parseInt(kv.T2||"0",10)||0,
-	  completed: (kv.Completed||"0").trim()==="1",
-	  t1ban: (kv.T1Ban||"").trim(),
-	  t2ban: (kv.T2Ban||"").trim(),
-	  mode: (kv.Mode||"").trim()          
-	});
-  }
+  const maps = (state.maps || []).filter(m => (m.map || "").trim());
+  const undecided = maps
+    .map((m, idx) => ({ idx, pick: normalizePick(m.pick) }))
+    .filter(x => !(x.pick === "T1" || x.pick === "T2"));
+  const deciderIdx = undecided.length ? undecided[undecided.length - 1].idx : -1;
 
-  const sig = JSON.stringify(items);
+  const playable = maps
+    .map((m, idx) => {
+      const pick = normalizePick(m.pick);
+      const action = idx === deciderIdx ? "DECIDER" : (pick === "T1" || pick === "T2" ? "PICK" : "BAN");
+      return {
+        idx: Number(m.index) || (idx + 1),
+        name: (m.map || "").trim(),
+        t1: Number(m.t1) || 0,
+        t2: Number(m.t2) || 0,
+        completed: !!m.completed,
+        winner: ((m.winner || "") + "").trim().toLowerCase(),
+        mode: (m.mode || "").trim(),
+        action,
+      };
+    })
+    .filter(m => m.action !== "BAN");
+
+  const sig = JSON.stringify(playable);
   if(sig === _prevSig) return;
   _prevSig = sig;
 
   root.innerHTML = "";
-
   if(!OVERLAY_LOGO) OVERLAY_LOGO = await resolveOverlayLogo();
+  if (!playable.length) return;
 
-  for (const m of items){
+  root.style.gridTemplateColumns = `repeat(${playable.length}, minmax(0, 1fr))`;
+
+  for (const m of playable){
     const wrap = document.createElement("div");
     wrap.className = "map-wrap";
 
     const card = document.createElement("div");
     card.className = "map-card";
 
-	let bgSet = false;
-	if(m.name){
-	  const mapFile = `${MAPS}/${slug(m.name)}.png`;
-	  if(await ok(mapFile)){ card.style.backgroundImage = `url('${mapFile}?_=${Date.now()}')`; bgSet = true; }
-	}
-	if(!m.name || !bgSet){
-	  card.classList.add("waiting");
-	  if(!OVERLAY_LOGO) OVERLAY_LOGO = await resolveOverlayLogo();
-	  if(OVERLAY_LOGO){
-		const ph = document.createElement("div");
-		ph.className = "placeholder";
-		ph.style.backgroundImage = `url('${OVERLAY_LOGO}?_=${Date.now()}')`;
-		card.appendChild(ph);
-	  }
-	}
-
-    if(m.completed){
-      let win = "";
-      if(m.t1 > m.t2) win="t1"; else if(m.t2 > m.t1) win="t2";
-      if(win){
-        const rgb = getComputedStyle(document.documentElement).getPropertyValue(win==="t1" ? "--t1-rgb" : "--t2-rgb").trim();
-        card.style.setProperty("--winner-rgb", rgb || (win==="t1"?"39,170,225":"200,0,19"));
-        card.classList.add(`winner-${win}`);
-
-        const center = document.createElement("div");
-        center.className="winner-center";
-        const img=document.createElement("img");
-        img.src = `${MATCH}/${win.toUpperCase()}Logo.png?_=${Date.now()}`;
-        img.alt = win.toUpperCase();
-        center.appendChild(img);
-        card.appendChild(center);
+    let bgSet = false;
+    if(m.name){
+      const meta = mapsBySlug[slug(m.name)] || {};
+      const mapPath = resolveMapImagePath(meta, m.name);
+      if(await ok(mapPath)){
+        card.style.backgroundImage = `url('${mapPath}?_=${Date.now()}')`;
+        bgSet = true;
       }
     }
-const shouldShowScore = !!m.name && (m.t1 > 0 || m.t2 > 0 || m.completed);
-	if (shouldShowScore) {
-	  const scoreDiv = document.createElement("div");
-	  scoreDiv.className = "map-score";
-	  scoreDiv.innerHTML = `
-		<span class="score s1">${m.t1}</span>
-		<span class="score-sep"></span>
-		<span class="score s2">${m.t2}</span>
-	  `;
-	  card.appendChild(scoreDiv);
-	}
-
-if (m.t1ban || m.t2ban) {
-  const bans = document.createElement("div");
-  bans.className = "map-bans";
-
-  async function makeBanWrap(heroName){
-    const wrap = document.createElement("div");
-    wrap.className = "ban-wrap";
-
-    const label = document.createElement("div");
-    label.className = "ban-label";
-    label.textContent = "BAN";
-
-    const icon = document.createElement("div");
-    icon.className = "ban";
-    if (heroName) {
-      const hfile = `${HEROES}/${slug(heroName)}.png`;
-      if (await ok(hfile)) icon.style.backgroundImage = `url('${hfile}?_=${Date.now()}')`;
+    if(!m.name || !bgSet){
+      card.classList.add("waiting");
+      if(OVERLAY_LOGO){
+        const ph = document.createElement("div");
+        ph.className = "placeholder";
+        ph.style.backgroundImage = `url('${OVERLAY_LOGO}?_=${Date.now()}')`;
+        card.appendChild(ph);
+      }
     }
-    wrap.appendChild(label);
-    wrap.appendChild(icon);
-    return wrap;
-  }
 
-  if (m.t1ban) bans.appendChild(await makeBanWrap(m.t1ban));
+    const win = (m.winner === "t1" || m.winner === "t2")
+      ? m.winner
+      : (m.completed ? (m.t1 > m.t2 ? "t1" : (m.t2 > m.t1 ? "t2" : "")) : "");
 
-  const modeDiv = document.createElement("div");
-  modeDiv.className = "mode-icon";
-  let modeSlug = "";
-  if (m.name) {
-    const mslug = slug(m.name);
-    const meta = mapsBySlug[mslug];
-    const modeName = (meta?.mode || "").toLowerCase();
-    modeSlug = modesByName[modeName] || modeName;
-  }
-  if (modeSlug) {
-    const mfile = `${SB}/Gametypes/${modeSlug}.png`;
-    if (await ok(mfile)) modeDiv.style.backgroundImage = `url('${mfile}?_=${Date.now()}')`;
-  }
-  bans.appendChild(modeDiv);
+    if(win){
+      const rgb = getComputedStyle(document.documentElement).getPropertyValue(win==="t1" ? "--t1-rgb" : "--t2-rgb").trim();
+      card.style.setProperty("--winner-rgb", rgb || (win==="t1"?"39,170,225":"200,0,19"));
+      card.classList.add(`winner-${win}`);
 
-  if (m.t2ban) bans.appendChild(await makeBanWrap(m.t2ban));
+      const center = document.createElement("div");
+      center.className="winner-center";
+      const img=document.createElement("img");
+      img.src = `${MATCH}/${win.toUpperCase()}Logo.png?_=${Date.now()}`;
+      img.alt = win.toUpperCase();
+      center.appendChild(img);
+      card.appendChild(center);
+    }
 
-  card.appendChild(bans);
-}
+    const shouldShowScore = !!m.name && (m.t1 > 0 || m.t2 > 0 || m.completed);
+    if (shouldShowScore) {
+      const scoreDiv = document.createElement("div");
+      scoreDiv.className = "map-score";
+      scoreDiv.innerHTML = `
+        <span class="score s1">${m.t1}</span>
+        <span class="score-sep"></span>
+        <span class="score s2">${m.t2}</span>
+      `;
+      card.appendChild(scoreDiv);
+    }
+
+    const modeDiv = document.createElement("div");
+    modeDiv.className = "mode-icon";
+    let modeSlug = "";
+    if (m.mode) {
+      modeSlug = slug(m.mode);
+    } else if (m.name) {
+      const meta = mapsBySlug[slug(m.name)];
+      const modeName = (meta?.mode || "").toLowerCase();
+      modeSlug = modesByName[modeName] || modeName;
+    }
+    if (modeSlug) {
+      const mfile = `${SB}/Gametypes/${modeSlug}.png`;
+      if (await ok(mfile)) {
+        modeDiv.style.backgroundImage = `url('${mfile}?_=${Date.now()}')`;
+        const modeWrap = document.createElement("div");
+        modeWrap.className = "map-bans";
+        modeWrap.appendChild(document.createElement("div"));
+        modeWrap.appendChild(modeDiv);
+        modeWrap.appendChild(document.createElement("div"));
+        card.appendChild(modeWrap);
+      }
+    }
 
     const cap = document.createElement("div");
     cap.className = "map-caption";
@@ -432,6 +434,7 @@ if (m.t1ban || m.t2ban) {
     root.appendChild(wrap);
   }
 }
+
 
 async function refreshHeader(){
   const t1name = ((await read(MATCH+"/T1Name.txt")).trim()||"TEAM 1").toUpperCase();
