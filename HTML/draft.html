@@ -311,6 +311,17 @@ const setBg=(el,url)=>el&&(el.style.backgroundImage=`url('${url}?_=${Date.now()}
 const bySlug=list=>{const m={};(list||[]).forEach(x=>x?.slug&&(m[x.slug]=x));return m;};
 const nameToSlug=n=> (n||"").normalize("NFKD").replace(/[\u0300-\u036f]/g,"").toLowerCase()
   .replace(/[^a-z0-9]+/g,"-").replace(/-+/g,"-").replace(/^-|-$/g,"");
+const normRelPath=p=>(p||"").replace(/^\/+/,"").replace(/\\/g,"/");
+const resolveMapImagePath=(meta,mapName)=>{
+  const imageRef = normRelPath(meta?.image || "");
+  if(imageRef){
+    if(imageRef.toLowerCase().startsWith("scoreboard/")) return `${ROOT}/${imageRef}`;
+    if(imageRef.toLowerCase().startsWith("maps/")) return `${SB}/${imageRef}`;
+    return `${SB}/Maps/${imageRef.split('/').pop()}`;
+  }
+  const slug = (meta?.slug || nameToSlug(mapName));
+  return `${SB}/Maps/${slug}.jpg`;
+};
 function hexToRgb(hexStr){
   const m=(hexStr||"").trim().replace(/^#/,'').toLowerCase();
   const s=m.length===3?m.split('').map(c=>c+c).join(''):m;
@@ -475,7 +486,7 @@ async function renderDraft(){
 
     const mapName = (m.map || "").trim();
     const meta = mapsBySlug[nameToSlug(mapName)] || {};
-    const mapFile = meta.slug ? `${meta.slug}.jpg` : `${nameToSlug(mapName)}.jpg`;
+    const mapImagePath = resolveMapImagePath(meta, mapName);
 
     const pickRaw = ((m.pick || "") + "").trim().toUpperCase();
     let pick = pickRaw;
@@ -485,7 +496,7 @@ async function renderDraft(){
     const action = idx === deciderIdx ? "DECIDER" : (pick === "T1" || pick === "T2" ? "PICK" : "BAN");
     const card = document.createElement("div");
     card.className = `map-card ${action.toLowerCase()}`;
-    card.style.backgroundImage = `url('${SB}/Maps/${mapFile}?_=${Date.now()}')`;
+    card.style.backgroundImage = `url('${mapImagePath}?_=${Date.now()}')`;
 
     const winner = ((m.winner || "") + "").toLowerCase();
     const logoTeam = action === "PICK" ? pick : (action === "BAN" ? ((idx % 2 === 0) ? "T1" : "T2") : "");
