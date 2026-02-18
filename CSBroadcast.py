@@ -3130,6 +3130,7 @@ class TournamentApp(QMainWindow):
         for mr in self.map_rows:
             mr.reset()
 
+        imported_count = min(len(draft_maps), len(self.map_rows))
         for idx, item in enumerate(draft_maps[:len(self.map_rows)], start=1):
             mr = self.map_rows[idx - 1]
             map_name = (item.get("map") or "").strip()
@@ -3140,11 +3141,26 @@ class TournamentApp(QMainWindow):
                     map_ix = mr.map_combo.findText(map_name)
                 mr.map_combo.setCurrentIndex(map_ix if map_ix >= 0 else 0)
 
-            action = (item.get("action") or "").strip()
+            # Use deterministic draft labeling instead of FACEIT draft vote parsing.
+            if imported_count >= 2:
+                if idx == 1:
+                    action = "Pick"
+                    by = "t1"
+                elif idx == 2:
+                    action = "Pick"
+                    by = "t2"
+                elif imported_count == 3 and idx == 3:
+                    action = "Decider"
+                    by = ""
+                else:
+                    action = "Pick"
+                    by = ""
+            else:
+                action = "Pick"
+                by = "t1"
+
             action_ix = mr.draft_action.findText(action if action else "—")
             mr.draft_action.setCurrentIndex(action_ix if action_ix >= 0 else 0)
-
-            by = (item.get("by") or "").strip().lower()
             mr.set_selected_draft_by(by if by in {"t1", "t2"} else "")
 
             mr.t1score.setValue(int(item.get("t1") or 0))
