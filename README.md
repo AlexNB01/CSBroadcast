@@ -1,81 +1,85 @@
 # CSBroadcast
 
-CSBroadcast is a local broadcast overlay controller for Counter-Strike productions.
-It ships as desktop executables (`CSBroadcast.exe` + `CSBroadcastServer.exe`) and serves HTML overlays to OBS Browser Sources.
-
-> **Important:** The application is now packaged as EXE files. `launch.py` is legacy/development-only and not needed in normal use.
+CSBroadcast is a local broadcast overlay tool for Counter-Strike productions.
+It runs as packaged Windows executables and serves all overlay pages from a local server for OBS Browser Sources.
 
 ---
 
 ## Quick Start
 
 ### Install
-1. Download and run the CSBroadcast installer (`CSBroadcast-Setup.exe`) from the project release page.
-2. Install to the default folder (recommended).
-3. Always start the app with **`launch.bat`**.
+1. Download and run **CSBroadcast-Setup.exe** from this repository’s Releases page.
+2. Install to the default folder.
+3. Always launch with **`launch.bat`**.
 
 ### Add OBS overlays
-- In OBS: **Scene Collection → Import**
-- Import the provided scene collection JSON (`csbroadcastscenes.json`) from your CSBroadcast install folder.
+OBS → **Scene Collection** → **Import** → select:
+
+- `csbroadcastscenes.json`
+
+(from your CSBroadcast installation folder)
 
 ### Install recommended OBS plugins/tools
-- [VLC media player](https://www.videolan.org/vlc/download-windows.html) (needed if you use VLC Video Source / replay workflows)
+- [VLC media player](https://www.videolan.org/vlc/download-windows.html) (recommended if you use VLC sources/replay workflows)
 
 ### Operate
-- Fill **Match tab**: teams, abbreviations, logos, scores, players, map picks/results.
-- Fill **General tab**: map count, host/casters, logos, theme colors, status text.
-- Fill **Draft tab**: select map pool shown in `draft.html`.
-- Fill **Waiting tab**: countdown, waiting texts, socials, and video settings.
-- Fill **Standings tab**: groups, teams, logos, and results.
+- Fill **Match tab**: teams, abbreviations, logos, colors, players, scores, and map rows.
+- Fill **General tab**: map count, host, casters, logos, theme colors, status text.
+- Fill **Draft tab**: map pool shown in `draft.html`.
+- Fill **Waiting Screen tab**: countdown, waiting texts, socials, and video folder.
+- Fill **Standings tab**: groups, teams, logos, and records.
 - Fill **Bracket tab**: import teams from standings, load bracket, assign teams.
-- Click **Update** to push changes to overlays.
-- Use **Swap** to flip teams (including map picks/scores).
-- Use **Reset** per tab to clear only that tab.
+- Fill **Statistics tab**: FACEIT links/API key/match page and stats options.
+- Click **Update** buttons to write exports and push live updates.
+- Use **Swap** to flip Team 1/Team 2 with related map context.
+- Use **Reset this tab** to clear only the current section.
 
-See **GUI Reference** below for field-level behavior.
+See **GUI Reference** below for details.
 
 ---
 
 ## Overlays
 
-All overlays are HTML/CSS/JS pages served locally by `CSBroadcastServer.exe` and updated through SSE (`/events`).
+All overlays are HTML/CSS/JS pages served by the local app server (`127.0.0.1:8324`) and updated via SSE.
 
-### Scoreboard (`scoreboard.html`)
-- Left/right team areas with logo, name, score, and team color.
-- Series/map strip fed by match data.
-- Updates from Match + General tab values.
+## Scoreboard (`scoreboard.html`)
+- Team left/right areas with logo, name, score, and color.
+- Map strip/series state from Match + Draft data.
+- Uses General theme colors.
 
-### Team Rosters (`team1.html`, `team2.html`)
-- Team roster layouts for player names/roles.
-- Supports full roster/substitute style based on filled player rows.
+## Team Rosters (`team1.html`, `team2.html`)
+- Team/player roster views.
+- Supports the configured player rows from Match data.
 
-### Caster Screens
+## Caster Screens
 - `singlecam.html`, `duorow.html`, `triorow.html`
-- Caster names and theme colors are pulled from General settings.
+- Pull caster names and theme colors from General tab.
 
-### Transition (`transition.html`)
-- Transition/stinger scene using transition logo + theme colors.
+## Transition (`transition.html`)
+- Transition/stinger layout using transition logo and theme palette.
 
-### Replay (`replay.html`)
-- Replay overlay page used with local replay playlist/workflow.
+## Replay (`replay.html`)
+- Replay page fed by replay playlist files under `Scoreboard\Replay\Playlist`.
 
-### Waiting Screens
-- `startingsoon.html` → Starting Soon
-- `berightback.html` → Be Right Back
-- `thankyouforwatching.html` → Thank You for Watching
-- Typical features include: title text, optional countdown, logo area, socials ticker/row, and video panel.
+## Waiting Screens
+- `startingsoon.html`
+- `berightback.html`
+- `thankyouforwatching.html`
 
-### Draft (`draft.html`)
-- Series draft/map card view (picks/results/map status) with team colors.
+Features include title text, countdown support, logo area, social row, and video panel.
 
-### Maps (`maps.html`)
-- Full series map overview with per-map results.
+## Draft (`draft.html`)
+- Draft/map-card view with pick/win/ban context and team colors.
+- Uses selected map pool from Draft/Match data.
 
-### Bracket (`bracket.html`)
-- Tournament bracket view fed by Bracket tab exports.
+## Maps (`maps.html`)
+- Full series map overview with per-map scores/results.
 
-### Standings (`standings.html`)
-- Group standings/results view fed by Standings tab exports.
+## Bracket (`bracket.html`)
+- Tournament bracket exported from Bracket tab.
+
+## Standings (`standings.html`)
+- Group standings exported from Standings tab.
 
 ---
 
@@ -83,122 +87,170 @@ All overlays are HTML/CSS/JS pages served locally by `CSBroadcastServer.exe` and
 
 ## Match tab
 - **Team 1 / Team 2**
-  - Name, Abbreviation, Score, Team Color
-  - Load Logo
+  - Name
+  - Abbreviation
+  - Score
+  - Team color
+  - Team logo
+  - Team FACEIT link
 - **Players**
-  - Per-player fields (name + role/link data depending on layout)
+  - Player rows (name/role/link fields)
+  - Team player import from FACEIT
 - **Maps**
-  - Up to BO7-style map rows
-  - Per-map values: map name, map score/result, pick side/team, completion status
+  - Up to 7 map rows
+  - Per-map values: map name, team scores, completion state, pick/side context, winner markers
 - **Buttons**
-  - **Update**: writes match exports and pushes live update event
-  - **Swap**: flips Team 1/Team 2 and related map context
-  - **Reset**: clears Match tab fields
+  - **Update**: writes `Scoreboard\Match\*` and notifies overlays
+  - **Swap**: flips teams and map context
+  - **Reset this tab**: clears Match fields
 
 ## General tab
-- Number of maps / first-to setup
+- Number of maps / first-to behavior
 - Host, Caster 1, Caster 2
 - Status text
-- Overlay logo + Transition logo
-- Theme colors (multiple named slots used across scenes)
-- **Update**: writes `Scoreboard/General/*`
-- **Reset**: clears General tab fields
+- Overlay logo and Transition logo
+- Theme colors:
+  - Primary
+  - Secondary
+  - Tertiary
+  - Quaternary
+  - Quinary
+  - Senary
+  - Septenary
+  - Octonary
+- **Update (General)** writes `Scoreboard\General\*`
+- **Reset this tab** clears only General fields
 
 ## Draft tab
-- Select/maintain map pool shown in draft overlays.
+- Controls which maps are used/shown for draft overlays.
 
-## Waiting tab
-- Waiting texts (Starting Soon / BRB / Thanks)
+## Waiting Screen tab
+- Video folder path
+- Starting Soon / BRB / Thank You texts
 - Countdown timer controls
-- Social handles/rows
-- Video directory/playlist-related fields
-- **Update** writes waiting export files
-- **Reset** clears waiting fields
+- Social links/handles
+- **Update (Waiting)** writes `Scoreboard\Waiting\*`
+- **Reset** clears waiting settings
 
 ## Standings tab
-- Group/team table editor + result fields for `standings.html`
-- **Update** exports standings data
-- **Reset** clears standings fields
+- Create/edit groups
+- Enter team rows, records, logos, and status (`qualified` / `eliminated`)
+- **Update + sort** exports `Scoreboard\Standings\*`
+- **Reset this tab** clears standings UI state
 
 ## Bracket tab
-- Import teams from Standings
-- Load/select bracket template
-- Assign teams and progress winners
-- **Update** exports bracket data for `bracket.html`
-- **Reset** clears bracket fields
+- Import team list from Standings
+- Load bracket template
+- Assign teams into bracket slots
+- Mark winners/progression
+- **Update** exports `Scoreboard\Bracket\*`
+- **Reset this tab** clears bracket state
 
-## Team import/export
-- Per-team import/export JSON helpers are available in the app menu/actions.
+## Statistics tab (FACEIT)
+- Tournament FACEIT links:
+  - Group stage
+  - Playoffs
+  - FACEIT API key
+- Match statistics settings:
+  - Title
+  - Match page URL
+  - Source selection
+  - Selected match maps
+- FACEIT actions:
+  - Import picked maps from FACEIT
+  - Import Team 1 players from FACEIT
+  - Import Team 2 players from FACEIT
+- **Update (Statistics)** exports FACEIT/statistics files used by overlays/pages
+- **Reset this tab** clears statistics fields
+
+## Team Import/Export
+- Menu actions for Home/Away team import/export JSON.
+- Useful for reusing team profiles between matches.
+
+## Bulk Import Wizard
+- Bulk map/logo asset import workflow (from menu).
+- Imports detected assets into app-managed folders and index files.
 
 ---
 
-## Replay workflow (recommended)
+## Replay
 
-1. Save replay exports into the expected replay input location under `Scoreboard/Replay`.
-2. Let CSBroadcast replay workflow copy/index clips into `Scoreboard/Replay/Playlist`.
-3. Keep `replay.html` Browser Source loaded for instant transitions.
+Recommended workflow:
+1. Export/copy replay clips into the app replay input path.
+2. Keep replay files in `Scoreboard\Replay\Playlist` for sequential playback.
+3. Keep `replay.html` Browser Source active in OBS for instant use.
 
-If your replay source does not update:
-- verify file naming/path,
-- verify OBS source points to `http://127.0.0.1:8324/HTML/replay.html`,
-- verify server is still running.
+If replay does not update:
+- Verify file naming/path in `Scoreboard\Replay` and `Scoreboard\Replay\Playlist`.
+- Verify OBS source URL is `http://127.0.0.1:8324/HTML/replay.html`.
+- Verify `CSBroadcastServer.exe` is still running.
 
 ---
 
-## File/scene wiring
+## Runtime wiring
 
 ### Start sequence
 1. Run `launch.bat`
-2. `CSBroadcastServer.exe` starts local server (`127.0.0.1:8324`)
+2. `CSBroadcastServer.exe` starts local server on `127.0.0.1:8324`
 3. `CSBroadcast.exe` opens GUI
-4. On GUI close, launcher stops server
+4. Closing GUI stops the server process
 
-### Overlay URL pattern
-Use OBS Browser Sources with URLs such as:
+### OBS Browser Source URL examples
 - `http://127.0.0.1:8324/HTML/scoreboard.html`
+- `http://127.0.0.1:8324/HTML/team1.html`
+- `http://127.0.0.1:8324/HTML/team2.html`
 - `http://127.0.0.1:8324/HTML/draft.html`
 - `http://127.0.0.1:8324/HTML/maps.html`
 - `http://127.0.0.1:8324/HTML/standings.html`
 - `http://127.0.0.1:8324/HTML/bracket.html`
+- `http://127.0.0.1:8324/HTML/singlecam.html`
+- `http://127.0.0.1:8324/HTML/duorow.html`
+- `http://127.0.0.1:8324/HTML/triorow.html`
+- `http://127.0.0.1:8324/HTML/transition.html`
+- `http://127.0.0.1:8324/HTML/replay.html`
+- `http://127.0.0.1:8324/HTML/startingsoon.html`
+- `http://127.0.0.1:8324/HTML/berightback.html`
+- `http://127.0.0.1:8324/HTML/thankyouforwatching.html`
 
-### Runtime data exports
-The app continuously writes overlay data under:
-- `Scoreboard/General/*`
-- `Scoreboard/Match/*`
-- `Scoreboard/Maps/*`
-- `Scoreboard/Waiting/*`
-- plus standings/bracket/replay-related folders
+### Export folders (written by app)
+- `Scoreboard\General\*`
+- `Scoreboard\Match\*`
+- `Scoreboard\Maps\*`
+- `Scoreboard\Waiting\*`
+- `Scoreboard\Standings\*`
+- `Scoreboard\Bracket\*`
+- `Scoreboard\Replay\*`
+
+Plus root state files like `autosave.json`, `match.json`, and `assets.json`.
 
 ---
 
 ## Troubleshooting
 
-### App opens but overlays do not update
+### Overlays are blank or not updating
 - Ensure `CSBroadcastServer.exe` is running.
 - Open `http://127.0.0.1:8324/HTML/scoreboard.html` in a browser.
-- Confirm OBS Browser Source URLs use `127.0.0.1:8324`.
+- Confirm Browser Source URLs point to `127.0.0.1:8324`.
 - Check firewall/security rules for localhost traffic.
 
-### `launch.bat` reports missing EXE
+### `launch.bat` says EXE is missing
 Expected files:
 - `CSBroadcastServer.exe` (or `CSBroadcastServer\CSBroadcastServer.exe`)
 - `CSBroadcast.exe` (or `CSBroadcast\CSBroadcast.exe`)
 
-### Port 8324 already in use
-Close the conflicting process and relaunch.
-(If needed for development, run server manually with another port and update Browser Source URLs.)
+### Port 8324 conflict
+- Close the process already using port 8324.
+- Relaunch with `launch.bat`.
 
-### Logos/maps not showing
+### FACEIT import fails
+- Confirm FACEIT Match page URL is set in Statistics tab.
+- Confirm FACEIT API key is set.
+- Confirm network access to FACEIT endpoints.
+
+### Logos/maps not visible
 - Re-select files in GUI.
-- Confirm files exist and are readable.
-- Check generated files in `Scoreboard/General` and `Scoreboard/Maps`.
-
----
-
-## Developer note
-
-- Production usage is EXE-based (`launch.bat` + packaged binaries).
-- `launch.py` exists only for source/dev workflows and can be ignored in installer builds.
+- Check file paths are valid and readable.
+- Verify exported files exist in `Scoreboard\General` / `Scoreboard\Maps` / `Scoreboard\Match`.
 
 ---
 
