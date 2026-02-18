@@ -1,4 +1,5 @@
 import os, sys, json, time, argparse, http.server, threading, socketserver
+from urllib.parse import urlparse, parse_qs, unquote
 
 class SilentHTTPServer(http.server.ThreadingHTTPServer):
     daemon_threads = True
@@ -85,9 +86,37 @@ class PushHandler(http.server.SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(str(e).encode("utf-8"))
 
+
+    def _handle_external(self):
+        try:
+            parsed = urlparse(self.path)
+            qs = parse_qs(parsed.query or "")
+            raw_path = (qs.get("path", [""])[0] or "").strip()
+            if not raw_path:
+                self.send_error(400, "Missing path")
+                return
+
+            target = os.path.abspath(unquote(raw_path))
+            if not os.path.isfile(target):
+                self.send_error(404, "File not found")
+                return
+
+            ctype = self.guess_type(target)
+            fs = os.stat(target)
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(fs.st_size))
+            self.end_headers()
+            with open(target, "rb") as f:
+                self.copyfile(f, self.wfile)
+        except Exception:
+            self.send_error(500, "Failed to read external file")
+
     def do_GET(self):
         if self.path.startswith("/events"):
             return self._handle_events()
+        if self.path.startswith("/external"):
+            return self._handle_external()
         return super().do_GET()
 
     def do_POST(self):
