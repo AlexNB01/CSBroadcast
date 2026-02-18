@@ -2752,12 +2752,16 @@ class TournamentApp(QMainWindow):
             if not isinstance(value, dict):
                 return
 
-            for key in ("items", "results", "standings", "entries", "leaderboard", "leaderboard_items"):
+            for key in ("items", "results", "standings", "entries", "leaderboard", "leaderboard_items", "leaderboardItems", "ranking", "table", "data"):
                 vv = value.get(key)
                 if isinstance(vv, list):
                     for item in vv:
                         if isinstance(item, dict):
                             rows.append(item)
+
+            # If this dict itself looks like a team standing row, keep it.
+            if any(k in value for k in ("team", "entity", "faction", "team_name", "entity_name", "name", "entity_id", "team_id")):
+                rows.append(value)
 
             for sub in value.values():
                 if isinstance(sub, (dict, list)):
@@ -2819,6 +2823,8 @@ class TournamentApp(QMainWindow):
             try:
                 lb_endpoint = f"https://open.faceit.com/data/v4/leaderboards/championships/{champ_id}"
                 lb_data = _request_json(lb_endpoint)
+                if not championship_name:
+                    championship_name = str(lb_data.get("name") or lb_data.get("championship_name") or "").strip()
                 all_rows.extend(_normalize_rows(lb_data))
 
                 groups = lb_data.get("groups") or lb_data.get("leaderboard_groups") or []
@@ -2846,6 +2852,17 @@ class TournamentApp(QMainWindow):
             except Exception as e:
                 last_error = str(e)
 
+            try:
+                results_endpoint = f"https://open.faceit.com/data/v4/championships/{champ_id}/results"
+                results_data = _request_json(results_endpoint)
+                if not championship_name:
+                    championship_name = str(results_data.get("name") or results_data.get("championship_name") or "").strip()
+                all_rows.extend(_normalize_rows(results_data))
+            except urllib.error.HTTPError as e:
+                last_error = f"HTTP {e.code} from https://open.faceit.com/data/v4/championships/{champ_id}/results"
+            except Exception as e:
+                last_error = str(e)
+
             dedup: Dict[str, StandingsRow] = {}
             for row in all_rows:
                 key = (row.team_name or "").strip().lower()
@@ -2869,7 +2886,7 @@ class TournamentApp(QMainWindow):
                 _apply_standings_ranks(rows)
                 return {"name": championship_name, "rows": rows, "error": ""}
 
-        return {"name": "", "rows": [], "error": last_error or "No standings rows returned by FACEIT API."}
+        return {"name": "", "rows": [], "error": last_error or "No standings rows returned by FACEIT API (check championship URL/ID)."}
 
     def _extract_faceit_team_ids(self, team_url: str) -> List[str]:
         url = (team_url or "").strip()
