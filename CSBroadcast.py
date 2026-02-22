@@ -3345,6 +3345,179 @@ class TournamentApp(QMainWindow):
                 continue
         return None
 
+    def _extract_faceit_match_ids_from_page(self, page_url: str) -> List[str]:
+        ids = list(self._extract_faceit_match_ids(page_url))
+        url = (page_url or "").strip()
+        if not url:
+            return ids
+
+        import urllib.request
+        import urllib.error
+
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=8.0) as resp:
+                html = resp.read().decode("utf-8", errors="ignore")
+        except Exception:
+            html = ""
+
+        if html:
+            room_ids = re.findall(r"/room/([^/?#\"'<>\s]+)", html, flags=re.IGNORECASE)
+            ids.extend([r.strip() for r in room_ids if str(r).strip()])
+            raw_matches = re.findall(r"(?:\b\d-)?[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", html)
+            ids.extend([m.strip() for m in raw_matches if str(m).strip()])
+
+        out: List[str] = []
+        seen = set()
+        for mid in ids:
+            for variant in [mid, mid.split("-", 1)[1] if "-" in mid and mid[0].isdigit() else mid]:
+                v = (variant or "").strip()
+                if v and v not in seen:
+                    seen.add(v)
+                    out.append(v)
+        return out
+
+    def _fetch_faceit_tournament_statistics_payload(self, state: dict) -> Optional[dict]:
+        t_faceit = (state.get("tournament_faceit") or {}) if isinstance(state, dict) else {}
+        api_key = (t_faceit.get("api_key") or "").strip()
+        group_stage = (t_faceit.get("group_stage") or "").strip()
+        playoffs = (t_faceit.get("playoffs") or "").strip()
+        if not api_key or (not group_stage and not playoffs):
+            return None
+
+        ids: List[str] = []
+        for page in [group_stage, playoffs]:
+            ids.extend(self._extract_faceit_match_ids_from_page(page))
+
+        match_ids: List[str] = []
+        seen_ids = set()
+        for mid in ids:
+            if mid not in seen_ids:
+                seen_ids.add(mid)
+                match_ids.append(mid)
+
+        if not match_ids:
+            return None
+
+        def _norm_name(name: str) -> str:
+            return "".join(ch.lower() for ch in str(name or "") if ch.isalnum())
+
+        wanted_t1 = _norm_name((state.get("team1") or {}).get("name") or "") if isinstance(state, dict) else ""
+        wanted_t2 = _norm_name((state.get("team2") or {}).get("name") or "") if isinstance(state, dict) else ""
+        wanted = {x for x in [wanted_t1, wanted_t2] if x}
+
+        team_acc: Dict[str, dict] = {}
+        used_match_ids: List[str] = []
+
+        import urllib.request
+        import urllib.error
+        import json
+
+        for match_id in match_ids[:200]:
+            try:
+                req = urllib.request.Request(
+                    f"https://open.faceit.com/data/v4/matches/{match_id}/stats",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                )
+                with urllib.request.urlopen(req, timeout=8.0) as resp:
+                    data = json.loads(resp.read().decode("utf-8", errors="ignore"))
+                if not isinstance(data, dict):
+                    continue
+                parsed = self._extract_faceit_match_statistics(data, [])
+                t1 = parsed.get("team1") or {}
+                t2 = parsed.get("team2") or {}
+                t1_name = str(t1.get("name") or "").strip()
+                t2_name = str(t2.get("name") or "").strip()
+                norm_names = {_norm_name(t1_name), _norm_name(t2_name)}
+                norm_names.discard("")
+                if wanted and norm_names and wanted.isdisjoint(norm_names):
+                    continue
+
+                used_match_ids.append(match_id)
+                for team in [t1, t2]:
+                    name = str(team.get("name") or "").strip() or "Unknown"
+                    key = _norm_name(name) or name.lower()
+                    bucket = team_acc.setdefault(key, {"name": name, "players": {}})
+                    for p in (team.get("players") or []):
+                        nick = str(p.get("nickname") or "-").strip() or "-"
+                        pkey = nick.lower()
+                        pacc = bucket["players"].setdefault(pkey, {
+                            "nickname": nick,
+                            "kills": 0,
+                            "deaths": 0,
+                            "kd_sum": 0.0,
+                            "kd_count": 0,
+                            "adr_sum": 0.0,
+                            "adr_count": 0,
+                            "hs_sum": 0.0,
+                            "hs_count": 0,
+                        })
+                        pacc["kills"] += int(p.get("kills") or 0)
+                        pacc["deaths"] += int(p.get("deaths") or 0)
+                        for src, ksum, kcount in [("kd", "kd_sum", "kd_count"), ("adr", "adr_sum", "adr_count"), ("hs_pct", "hs_sum", "hs_count")]:
+                            val = p.get(src)
+                            if isinstance(val, (int, float)):
+                                pacc[ksum] += float(val)
+                                pacc[kcount] += 1
+            except urllib.error.HTTPError:
+                continue
+            except Exception:
+                continue
+
+        if not team_acc:
+            return None
+
+        def _finalize_players(team_bucket: dict) -> List[dict]:
+            rows = []
+            for p in team_bucket.get("players", {}).values():
+                deaths = int(p.get("deaths") or 0)
+                kd_calc = (float(p.get("kills") or 0) / deaths) if deaths > 0 else None
+                kd_avg = (p.get("kd_sum", 0.0) / p.get("kd_count", 0)) if p.get("kd_count", 0) > 0 else None
+                rows.append({
+                    "nickname": p.get("nickname") or "-",
+                    "kills": int(p.get("kills") or 0),
+                    "deaths": deaths,
+                    "kd": round(float(kd_calc if isinstance(kd_calc, (int, float)) else kd_avg), 2) if isinstance(kd_calc, (int, float)) or isinstance(kd_avg, (int, float)) else None,
+                    "adr": round(float(p.get("adr_sum", 0.0) / p.get("adr_count", 0)), 2) if p.get("adr_count", 0) > 0 else None,
+                    "hs_pct": round(float(p.get("hs_sum", 0.0) / p.get("hs_count", 0)), 1) if p.get("hs_count", 0) > 0 else None,
+                })
+            rows.sort(key=lambda x: str(x.get("nickname") or "").lower())
+            return rows
+
+        teams = []
+        for team in team_acc.values():
+            rows = _finalize_players(team)
+            if rows:
+                teams.append({"name": team.get("name") or "", "players": rows})
+
+        if not teams:
+            return None
+
+        def _pick_team(target: str, excluded: set) -> Optional[dict]:
+            if target:
+                for t in teams:
+                    tn = _norm_name(t.get("name") or "")
+                    if tn == target and tn not in excluded:
+                        return t
+            for t in teams:
+                tn = _norm_name(t.get("name") or "")
+                if tn not in excluded:
+                    return t
+            return None
+
+        used = set()
+        team1 = _pick_team(wanted_t1, used) or {"name": "", "players": []}
+        used.add(_norm_name(team1.get("name") or ""))
+        team2 = _pick_team(wanted_t2, used) or {"name": "", "players": []}
+        players = list(team1.get("players") or []) + list(team2.get("players") or [])
+
+        return {
+            "players": players,
+            "team1": team1,
+            "team2": team2,
+            "match_ids": used_match_ids,
+        }
+
     # ---------------------
     # Menubar and handlers
     # ---------------------
@@ -4670,6 +4843,8 @@ class TournamentApp(QMainWindow):
         })
 
         source = (merged.get("source") or "").strip().lower()
+        for key in ("players", "team1", "team2", "maps", "match_id", "match_ids"):
+            merged.pop(key, None)
         if source == "match":
             t_faceit = (state.get("tournament_faceit") or {}) if isinstance(state, dict) else {}
             api_key = (t_faceit.get("api_key") or "").strip()
@@ -4678,6 +4853,12 @@ class TournamentApp(QMainWindow):
             fetched = self._fetch_faceit_match_statistics_payload(match_page, api_key, selected_maps)
             if fetched:
                 for key in ("players", "team1", "team2", "maps", "match_id"):
+                    if key in fetched:
+                        merged[key] = fetched[key]
+        else:
+            fetched = self._fetch_faceit_tournament_statistics_payload(state)
+            if fetched:
+                for key in ("players", "team1", "team2", "match_ids"):
                     if key in fetched:
                         merged[key] = fetched[key]
 
