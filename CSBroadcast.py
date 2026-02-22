@@ -3402,6 +3402,8 @@ class TournamentApp(QMainWindow):
         def _norm_name(name: str) -> str:
             return "".join(ch.lower() for ch in str(name or "") if ch.isalnum())
 
+        gui_t1_ids = set(self._extract_faceit_team_ids(self.team1_panel.team_faceit_link.text()))
+        gui_t2_ids = set(self._extract_faceit_team_ids(self.team2_panel.team_faceit_link.text()))
         wanted_t1 = _norm_name((state.get("team1") or {}).get("name") or "") if isinstance(state, dict) else ""
         wanted_t2 = _norm_name((state.get("team2") or {}).get("name") or "") if isinstance(state, dict) else ""
         wanted = {x for x in [wanted_t1, wanted_t2] if x}
@@ -3415,11 +3417,38 @@ class TournamentApp(QMainWindow):
 
         for match_id in match_ids[:200]:
             try:
-                req = urllib.request.Request(
+                req_match = urllib.request.Request(
+                    f"https://open.faceit.com/data/v4/matches/{match_id}",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                )
+                with urllib.request.urlopen(req_match, timeout=8.0) as resp:
+                    match_data = json.loads(resp.read().decode("utf-8", errors="ignore"))
+                if not isinstance(match_data, dict):
+                    continue
+
+                teams = (match_data.get("teams") or {}) if isinstance(match_data, dict) else {}
+                factions = [teams.get("faction1") or {}, teams.get("faction2") or {}]
+                match_team_ids = set()
+                match_team_names = set()
+                for faction in factions:
+                    for k in ("faction_id", "team_id", "id"):
+                        raw = str(faction.get(k) or "").strip().lower()
+                        if raw:
+                            match_team_ids.add(raw)
+                    raw_name = _norm_name(str(faction.get("name") or faction.get("nickname") or ""))
+                    if raw_name:
+                        match_team_names.add(raw_name)
+
+                t1_ok = (not gui_t1_ids and not wanted_t1) or bool((gui_t1_ids & match_team_ids) or (wanted_t1 and wanted_t1 in match_team_names))
+                t2_ok = (not gui_t2_ids and not wanted_t2) or bool((gui_t2_ids & match_team_ids) or (wanted_t2 and wanted_t2 in match_team_names))
+                if not (t1_ok and t2_ok):
+                    continue
+
+                req_stats = urllib.request.Request(
                     f"https://open.faceit.com/data/v4/matches/{match_id}/stats",
                     headers={"Authorization": f"Bearer {api_key}"},
                 )
-                with urllib.request.urlopen(req, timeout=8.0) as resp:
+                with urllib.request.urlopen(req_stats, timeout=8.0) as resp:
                     data = json.loads(resp.read().decode("utf-8", errors="ignore"))
                 if not isinstance(data, dict):
                     continue
