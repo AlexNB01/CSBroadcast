@@ -98,7 +98,7 @@
       return { nickname, kills, deaths, kd, adr, hs_pct };
     }
 
-    function extractPlayers(payload){
+    function extractAllPlayers(payload){
       const s = payload?.statistics || {};
 
       if (Array.isArray(s?.players)) return s.players.map(normalizePlayer);
@@ -119,6 +119,40 @@
         return flat.map(normalizePlayer);
       }
       return [];
+    }
+
+    function extractPlayers(payload){
+      const s = payload?.statistics || {};
+      const teamContainers = [
+        s?.team2,
+        s?.tournament?.team2,
+        s?.tournament_stats?.team2,
+        s?.data?.team2,
+        payload?.team2,
+      ];
+      for (const container of teamContainers) {
+        if (Array.isArray(container?.players)) return container.players.map(normalizePlayer);
+      }
+
+      const teamArrays = [
+        s?.team2_players,
+        s?.tournament?.team2_players,
+        s?.tournament_stats?.team2_players,
+      ];
+      for (const arr of teamArrays) {
+        if (Array.isArray(arr)) return arr.map(normalizePlayer);
+      }
+
+      const teamLists = [s?.teams, s?.tournament?.teams, s?.tournament_stats?.teams, payload?.teams];
+      for (const teams of teamLists) {
+        if (Array.isArray(teams) && teams[1]) {
+          const players = Array.isArray(teams[1]?.players) ? teams[1].players : [];
+          if (players.length) return players.map(normalizePlayer);
+        }
+      }
+
+      const allPlayers = extractAllPlayers(payload);
+      return allPlayers.slice(TEAM_OFFSET, TEAM_OFFSET + TEAM_SIZE);
     }
 
     function cardHTML(p, idx){
@@ -173,8 +207,7 @@
         const title = (statsCfg.title || 'Statistics').toString().trim() || 'Statistics';
         titleEl.textContent = title;
 
-        const allPlayers = extractPlayers(js);
-        const players = allPlayers.slice(TEAM_OFFSET, TEAM_OFFSET + TEAM_SIZE);
+        const players = extractPlayers(js);
         grid.innerHTML = '';
         if(players.length === 0){
           statusEl.textContent = 'No player stats yet. Load tournament data in tool.';
