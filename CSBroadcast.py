@@ -3406,9 +3406,9 @@ class TournamentApp(QMainWindow):
         gui_t2_ids = set(self._extract_faceit_team_ids(self.team2_panel.team_faceit_link.text()))
         wanted_t1 = _norm_name((state.get("team1") or {}).get("name") or "") if isinstance(state, dict) else ""
         wanted_t2 = _norm_name((state.get("team2") or {}).get("name") or "") if isinstance(state, dict) else ""
-        wanted = {x for x in [wanted_t1, wanted_t2] if x}
 
-        team_acc: Dict[str, dict] = {}
+        t1_acc = {"name": (state.get("team1") or {}).get("name") or "", "players": {}} if isinstance(state, dict) else {"name": "", "players": {}}
+        t2_acc = {"name": (state.get("team2") or {}).get("name") or "", "players": {}} if isinstance(state, dict) else {"name": "", "players": {}}
         used_match_ids: List[str] = []
 
         import urllib.request
@@ -3429,20 +3429,26 @@ class TournamentApp(QMainWindow):
                 teams = (match_data.get("teams") or {}) if isinstance(match_data, dict) else {}
                 factions = [teams.get("faction1") or {}, teams.get("faction2") or {}]
                 match_team_ids = set()
-                match_team_names = set()
+                factions_meta = []
                 for faction in factions:
+                    faction_ids = set()
                     for k in ("faction_id", "team_id", "id"):
                         raw = str(faction.get(k) or "").strip().lower()
                         if raw:
                             match_team_ids.add(raw)
-                    raw_name = _norm_name(str(faction.get("name") or faction.get("nickname") or ""))
-                    if raw_name:
-                        match_team_names.add(raw_name)
+                            faction_ids.add(raw)
+                    faction_name = _norm_name(str(faction.get("name") or faction.get("nickname") or ""))
+                    factions_meta.append({"ids": faction_ids, "name": faction_name})
 
-                t1_ok = (not gui_t1_ids and not wanted_t1) or bool((gui_t1_ids & match_team_ids) or (wanted_t1 and wanted_t1 in match_team_names))
-                t2_ok = (not gui_t2_ids and not wanted_t2) or bool((gui_t2_ids & match_team_ids) or (wanted_t2 and wanted_t2 in match_team_names))
-                if not (t1_ok and t2_ok):
+                # Tournament mode should include matches where either selected team plays,
+                # not only direct head-to-head matches between both selected teams.
+                has_t1 = any((gui_t1_ids and (gui_t1_ids & f["ids"])) or (wanted_t1 and wanted_t1 and wanted_t1 == f["name"]) for f in factions_meta)
+                has_t2 = any((gui_t2_ids and (gui_t2_ids & f["ids"])) or (wanted_t2 and wanted_t2 and wanted_t2 == f["name"]) for f in factions_meta)
+                if not (has_t1 or has_t2):
                     continue
+
+                t1_name_hints = {f["name"] for f in factions_meta if f["name"] and ((gui_t1_ids and (gui_t1_ids & f["ids"])) or (wanted_t1 and wanted_t1 == f["name"]))}
+                t2_name_hints = {f["name"] for f in factions_meta if f["name"] and ((gui_t2_ids and (gui_t2_ids & f["ids"])) or (wanted_t2 and wanted_t2 == f["name"]))}
 
                 req_stats = urllib.request.Request(
                     f"https://open.faceit.com/data/v4/matches/{match_id}/stats",
@@ -3455,18 +3461,31 @@ class TournamentApp(QMainWindow):
                 parsed = self._extract_faceit_match_statistics(data, [])
                 t1 = parsed.get("team1") or {}
                 t2 = parsed.get("team2") or {}
-                t1_name = str(t1.get("name") or "").strip()
-                t2_name = str(t2.get("name") or "").strip()
-                norm_names = {_norm_name(t1_name), _norm_name(t2_name)}
-                norm_names.discard("")
-                if wanted and norm_names and wanted.isdisjoint(norm_names):
-                    continue
-
                 used_match_ids.append(match_id)
                 for team in [t1, t2]:
                     name = str(team.get("name") or "").strip() or "Unknown"
-                    key = _norm_name(name) or name.lower()
-                    bucket = team_acc.setdefault(key, {"name": name, "players": {}})
+                    norm_team = _norm_name(name)
+
+                    target = None
+                    if wanted_t1 and norm_team == wanted_t1:
+                        target = "t1"
+                    elif wanted_t2 and norm_team == wanted_t2:
+                        target = "t2"
+                    elif norm_team and norm_team in t1_name_hints and norm_team not in t2_name_hints:
+                        target = "t1"
+                    elif norm_team and norm_team in t2_name_hints and norm_team not in t1_name_hints:
+                        target = "t2"
+
+                    if target == "t1":
+                        bucket = t1_acc
+                    elif target == "t2":
+                        bucket = t2_acc
+                    else:
+                        continue
+
+                    if not (bucket.get("name") or "").strip() and name and name != "Unknown":
+                        bucket["name"] = name
+
                     for p in (team.get("players") or []):
                         nick = str(p.get("nickname") or "-").strip() or "-"
                         pkey = nick.lower()
@@ -3493,7 +3512,7 @@ class TournamentApp(QMainWindow):
             except Exception:
                 continue
 
-        if not team_acc:
+        if not t1_acc.get("players") and not t2_acc.get("players"):
             return None
 
         def _finalize_players(team_bucket: dict) -> List[dict]:
@@ -3513,32 +3532,12 @@ class TournamentApp(QMainWindow):
             rows.sort(key=lambda x: str(x.get("nickname") or "").lower())
             return rows
 
-        teams = []
-        for team in team_acc.values():
-            rows = _finalize_players(team)
-            if rows:
-                teams.append({"name": team.get("name") or "", "players": rows})
-
-        if not teams:
-            return None
-
-        def _pick_team(target: str, excluded: set) -> Optional[dict]:
-            if target:
-                for t in teams:
-                    tn = _norm_name(t.get("name") or "")
-                    if tn == target and tn not in excluded:
-                        return t
-            for t in teams:
-                tn = _norm_name(t.get("name") or "")
-                if tn not in excluded:
-                    return t
-            return None
-
-        used = set()
-        team1 = _pick_team(wanted_t1, used) or {"name": "", "players": []}
-        used.add(_norm_name(team1.get("name") or ""))
-        team2 = _pick_team(wanted_t2, used) or {"name": "", "players": []}
+        team1 = {"name": t1_acc.get("name") or "", "players": _finalize_players(t1_acc)}
+        team2 = {"name": t2_acc.get("name") or "", "players": _finalize_players(t2_acc)}
         players = list(team1.get("players") or []) + list(team2.get("players") or [])
+
+        if not players:
+            return None
 
         return {
             "players": players,
