@@ -3665,12 +3665,79 @@ class TournamentApp(QMainWindow):
 
         team1_rows = _to_rows(combined["team1"]["players"])
         team2_rows = _to_rows(combined["team2"]["players"])
+
+        def _normalize_player_key(value: str) -> str:
+            return "".join(ch.lower() for ch in str(value or "") if ch.isalnum())
+
+        def _gui_player_aliases(player_obj: dict) -> List[str]:
+            aliases: List[str] = []
+            pname = str((player_obj or {}).get("name") or "").strip()
+            if pname:
+                aliases.append(pname)
+            link = str((player_obj or {}).get("faceit_link") or "").strip()
+            if link:
+                m = re.search(r"/players?/([^/?#]+)", link, flags=re.IGNORECASE)
+                if m:
+                    aliases.append(m.group(1).strip())
+            out: List[str] = []
+            seen = set()
+            for a in aliases:
+                key = _normalize_player_key(a)
+                if key and key not in seen:
+                    seen.add(key)
+                    out.append(key)
+            return out
+
+        def _limit_rows_to_gui_players(team_rows: List[dict], gui_players: List[dict]) -> List[dict]:
+            if not gui_players:
+                return team_rows
+            row_by_key: Dict[str, dict] = {}
+            for row in team_rows:
+                key = _normalize_player_key((row or {}).get("nickname") or "")
+                if key and key not in row_by_key:
+                    row_by_key[key] = row
+
+            limited: List[dict] = []
+            for gp in gui_players:
+                gui_name = str((gp or {}).get("name") or "").strip()
+                aliases = _gui_player_aliases(gp)
+                found = None
+                for alias_key in aliases:
+                    if alias_key in row_by_key:
+                        found = row_by_key[alias_key]
+                        break
+
+                if found:
+                    row = dict(found)
+                    if gui_name:
+                        row["nickname"] = gui_name
+                    limited.append(row)
+                elif gui_name:
+                    limited.append({
+                        "nickname": gui_name,
+                        "kills": 0,
+                        "deaths": 0,
+                        "kd": None,
+                        "adr": None,
+                        "hs_pct": None,
+                    })
+            return limited
+
+        gui_team1_players = [p for p in ((state.get("team1") or {}).get("players") or []) if isinstance(p, dict)] if isinstance(state, dict) else []
+        gui_team2_players = [p for p in ((state.get("team2") or {}).get("players") or []) if isinstance(p, dict)] if isinstance(state, dict) else []
+
+        team1_rows = _limit_rows_to_gui_players(team1_rows, gui_team1_players)
+        team2_rows = _limit_rows_to_gui_players(team2_rows, gui_team2_players)
+
         if not team1_rows and not team2_rows:
             return None
 
+        t1_name = str(((state.get("team1") or {}).get("name") if isinstance(state, dict) else "") or combined["team1"].get("name") or "").strip()
+        t2_name = str(((state.get("team2") or {}).get("name") if isinstance(state, dict) else "") or combined["team2"].get("name") or "").strip()
+
         return {
-            "team1": {"name": combined["team1"].get("name") or "", "players": team1_rows},
-            "team2": {"name": combined["team2"].get("name") or "", "players": team2_rows},
+            "team1": {"name": t1_name, "players": team1_rows},
+            "team2": {"name": t2_name, "players": team2_rows},
             "players": [*team1_rows, *team2_rows],
             "match_ids": combined["match_ids"],
         }
