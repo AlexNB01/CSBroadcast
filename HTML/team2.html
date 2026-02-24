@@ -171,7 +171,8 @@
 
         const statsCfg = js.statistics || {};
         const title = (statsCfg.title || 'Statistics').toString().trim() || 'Statistics';
-        titleEl.textContent = title;
+        const teamName = (js?.team2?.name || '').toString().trim();
+        titleEl.textContent = teamName ? `${title} ${teamName}` : title;
 
         const allPlayers = extractPlayers(js);
         const players = allPlayers.slice(TEAM_OFFSET, TEAM_OFFSET + TEAM_SIZE);

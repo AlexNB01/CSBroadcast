@@ -234,6 +234,15 @@ const normalizePick=(pickRaw)=>{
   return pick;
 };
 
+const resolveDraftAction = (mapItem, idx, deciderIdx) => {
+  const draftAction = ((mapItem?.draft_action || "") + "").trim().toUpperCase();
+  if (draftAction === "BAN") return "BAN";
+  if (draftAction === "PICK") return "PICK";
+  if (draftAction === "DECIDER") return "DECIDER";
+  const pick = normalizePick(mapItem?.pick);
+  return idx === deciderIdx ? "DECIDER" : (pick === "T1" || pick === "T2" ? "PICK" : "BAN");
+};
+
 function adjustMapsBottom(){
   const statusEl = document.getElementById("status");
   const mapsEl   = document.getElementById("maps");
@@ -322,8 +331,7 @@ async function renderMaps(){
 
   const playable = maps
     .map((m, idx) => {
-      const pick = normalizePick(m.pick);
-      const action = idx === deciderIdx ? "DECIDER" : (pick === "T1" || pick === "T2" ? "PICK" : "BAN");
+      const action = resolveDraftAction(m, idx, deciderIdx);
       return {
         idx: Number(m.index) || (idx + 1),
         name: (m.map || "").trim(),
