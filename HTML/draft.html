@@ -291,13 +291,6 @@
 <!-- Corner bans -->
 <div id="banLeft"  class="corner-ban left"  aria-hidden="true"></div>
 <div id="banRight" class="corner-ban right" aria-hidden="true"></div>
-<div class="status-wrapper">
-  <div class="statusiso" id="status-bar" style="display:none">
-    <div class="status">
-      <span class="statusname" id="status-text"></span>
-    </div>
-  </div>
-</div>
 
 
 
@@ -364,20 +357,17 @@ function cornerBanHTML(side, hero){
 
 let _prevCorner = { b1: null, b2: null };
 
-async function upStatusText(){
-  const txt = await read(MATCH + "/status.txt");
-  const s = (txt || "").trim();
-  const bar = document.getElementById("status-bar");
-  const span = document.getElementById("status-text");
-  if (!bar || !span) return;
+function mapAction(mapItem, idx, deciderIdx){
+  const draftAction = ((mapItem?.draft_action || "") + "").trim().toUpperCase();
+  if (draftAction === "BAN") return "BAN";
+  if (draftAction === "PICK") return "PICK";
+  if (draftAction === "DECIDER") return "DECIDER";
 
-  if (s){
-    span.textContent = s.toUpperCase();
-    bar.style.display = "flex";
-  } else {
-    span.textContent = "";
-    bar.style.display = "none";
-  }
+  const pickRaw = ((mapItem?.pick || "") + "").trim().toUpperCase();
+  let pick = pickRaw;
+  if (pick === "TEAM 1") pick = "T1";
+  if (pick === "TEAM 2") pick = "T2";
+  return idx === deciderIdx ? "DECIDER" : (pick === "T1" || pick === "T2" ? "PICK" : "BAN");
 }
 
 async function renderCornerBans(state){
@@ -493,7 +483,7 @@ async function renderDraft(){
     if (pick === "TEAM 1") pick = "T1";
     if (pick === "TEAM 2") pick = "T2";
 
-    const action = idx === deciderIdx ? "DECIDER" : (pick === "T1" || pick === "T2" ? "PICK" : "BAN");
+    const action = mapAction(m, idx, deciderIdx);
     const card = document.createElement("div");
     card.className = `map-card ${action.toLowerCase()}`;
     card.style.backgroundImage = `url('${mapImagePath}?_=${Date.now()}')`;
@@ -565,7 +555,6 @@ async function tick(){
       toggleScoreBoxes();
       await renderDraft();
     }
-	upStatusText().catch(()=>{});
     await renderCornerBans(state);
 
   }finally{
