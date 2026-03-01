@@ -500,8 +500,9 @@ async function upTimer(){
 	  const safeBase = (base||"").trim().replace(/\\/g, "/").replace(/\/$/, "");
 	  if(!safeBase) return WAIT + "/Playlist/" + file;
 	  const fullPath = safeBase + "/" + file;
-	  if(/^https?:\/\//i.test(safeBase)) return fullPath;
-	  return "/external?path=" + encodeURIComponent(fullPath);
+	  if(/^https?:\/\//i.test(safeBase) || /^file:\/\//i.test(safeBase)) return fullPath;
+	  if(/^[a-z]:\//i.test(safeBase)) return "file:///" + fullPath;
+	  return fullPath;
 	}
   async function loadPlaylist(){
     const base = (await read(WAIT+"/videos_dir.txt")).trim();
